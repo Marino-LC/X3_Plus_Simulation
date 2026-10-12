@@ -1,3 +1,8 @@
 build/
 install/
 log/
+arena_map.yaml
+arena_map.pgm
+ag_results.png
+ag_results.html
+ag_results.json

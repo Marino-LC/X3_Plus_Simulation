@@ -155,10 +155,8 @@ TIP_SETTLE_WAIT = 0.30                # s — margen tras teleport antes de veri
 
 
 # ── AG ──────────────────────────────────────────────────────────────────────
-#POP_SIZE    = 35
-#N_GEN       = 30
-POP_SIZE    = 1
-N_GEN       = 1
+POP_SIZE    = 35
+N_GEN       = 30
 CX_PROB     = 0.55
 MUT_PROB    = 0.25
 # Kp del fabricante=0.8, Ki=0.06, Kd=0.5 — mismo dominio que este PID
