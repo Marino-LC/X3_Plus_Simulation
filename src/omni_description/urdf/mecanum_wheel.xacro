@@ -104,6 +104,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -112,6 +113,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_1"/>
             <axis xyz="2.402031829551454e-07 -4.4441721530619205e-07 0.9999998529743616"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_2">
@@ -135,6 +137,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -143,6 +146,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_2"/>
             <axis xyz="4.72187707212246e-07 -3.7811381864427673e-07 0.9999999731893168"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_3">
@@ -166,6 +170,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -174,6 +179,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_3"/>
             <axis xyz="-3.0094495512278385e-07 1.08901604845002e-07 1.0000003567723852"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_4">
@@ -197,6 +203,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -205,6 +212,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_4"/>
             <axis xyz="-4.843221603038905e-07 5.850288692377248e-08 1.0000002354328532"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_5">
@@ -228,6 +236,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -236,6 +245,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_5"/>
             <axis xyz="3.458780886145263e-07 3.245384191941092e-07 1.0000002259128622"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_6">
@@ -259,6 +269,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -267,6 +278,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_6"/>
             <axis xyz="-4.184712762977938e-07 2.657143597234457e-07 0.999999849860866"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_7">
@@ -290,6 +302,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -298,6 +311,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_7"/>
             <axis xyz="1.7805425323036417e-07 -5.224691109750879e-07 1.0000000910443436"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_8">
@@ -321,6 +335,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -329,6 +344,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_8"/>
             <axis xyz="1.6116768349061505e-07 -1.155820350540182e-08 1.0000003330324314"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_9">
@@ -352,6 +368,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -360,6 +377,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_9"/>
             <axis xyz="-1.5901610209145822e-07 -2.990393351276488e-07 1.0000000674784404"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
     </xacro:macro>
@@ -450,6 +468,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -458,6 +477,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_1"/>
             <axis xyz="-1.780542526197415e-07 -5.224691118077551e-07 1.0000000910443436"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_2">
@@ -481,6 +501,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -489,6 +510,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_2"/>
             <axis xyz="4.184712774080168e-07 2.657143595014011e-07 0.9999998498608658"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_3">
@@ -512,6 +534,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -520,6 +543,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_3"/>
             <axis xyz="-3.458780878373702e-07 3.245384199712653e-07 1.0000002259128622"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_4">
@@ -543,6 +567,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -551,6 +576,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_4"/>
             <axis xyz="4.843221604808323e-07 5.850288786746205e-08 1.0000002354328532"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_5">
@@ -574,6 +600,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -582,6 +609,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_5"/>
             <axis xyz="3.009449549284948e-07 1.0890160589971387e-07 1.0000003567723854"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_6">
@@ -605,6 +633,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -613,6 +642,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_6"/>
             <axis xyz="-4.721877082669579e-07 -3.7811381814467637e-07 0.9999999731893168"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_7">
@@ -636,6 +666,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -644,6 +675,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_7"/>
             <axis xyz="-2.40203183898835e-07 -4.4441721586130356e-07 0.9999998529743617"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_8">
@@ -667,6 +699,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -675,6 +708,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_8"/>
             <axis xyz="1.5901610195268034e-07 -2.9903933618236067e-07 1.0000000674784406"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
         <link name="${prefix}_roller_9">
@@ -698,6 +732,7 @@
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/RODILLO.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
+
             </collision>
         </link>
 
@@ -706,6 +741,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_9"/>
             <axis xyz="-1.6116768346285948e-07 -1.1558204560113694e-08 1.0000003330324314"/>
+            <dynamics damping="0.005" friction="0.001"/>
         </joint>
 
     </xacro:macro>
