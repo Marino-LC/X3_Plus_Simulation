@@ -154,6 +154,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from std_srvs.srv import Empty
 import numpy as np
+import math
 
 
 WHEEL_JOINTS = [
@@ -207,6 +208,9 @@ MOTOR_GAIN_K_DOMINIO_B_MM_S = 17.09   # mm/s por unidad de set_motor() — medid
 MOTOR_GAIN_K_DEFAULT = (MOTOR_GAIN_K_DOMINIO_B_MM_S / (1000.0 * 0.040)) / PWM_CMD_TO_RAW_SCALE
 # = 0.0213625 rad/s por unidad de PWM crudo (bajo Hipótesis A)
 
+# Zona muerta promedio del actuador con carga: 18.8 unidades de set_motor() x 20 ticks/unidad
+PWM_DEADZONE_DEFAULT = 376.0
+
 # ── PLACEHOLDER — banda muerta de error, ver nota de diseño #7 abajo ──────
 # Adaptación (NO transcripción literal) del mecanismo de banda muerta
 # documentado para el PID POSICIONAL del firmware (±40 cuentas de encoder,
@@ -239,6 +243,7 @@ class PIDController:
         self.kd = kd
         self.pwm_max = pwm_max
         self.error_deadband = max(0.0, error_deadband)
+        
 
         self._output = 0.0     # acumulador de PWM (equivalente a pwm_output en C)
         self._err_k1 = 0.0     # error del ciclo anterior (err_next en C)
@@ -355,6 +360,7 @@ class MecanumKinematicNode(Node):
 
         # Planta del motor (Sim2Real)
         self.declare_parameter('motor_gain_k',  MOTOR_GAIN_K_DEFAULT)  # rad/s por PWM
+        self.declare_parameter('pwm_deadzone', PWM_DEADZONE_DEFAULT)   # ticks crudos, igual para las 4 ruedas
         self.declare_parameter('motor_tau',     0.5797)
 
         # Callback para actualizar parámetros en tiempo de ejecución
@@ -450,6 +456,7 @@ class MecanumKinematicNode(Node):
         """
         now = self.get_clock().now()
         dt  = (now - self._last_time).nanoseconds * 1e-9
+        dz = self.get_parameter('pwm_deadzone').value
         self._last_time = now
 
         r = self.get_parameter('wheel_radius').value
@@ -464,11 +471,28 @@ class MecanumKinematicNode(Node):
             v_real_mm_s = self._omega_real[i] * mm_per_rad_s
             error_mm_s  = v_ref_mm_s - v_real_mm_s
 
+            """
+            Al mandar comandos de velocidad y posteriormente quitarla, el robot quedaba 
+            con una velocidad congelada por la banda muerta del PID, por ello se agregA
+            el siguiente codigo que si al haber una velocidad muy lenta la elimina -> 0.0
+            
+            if abs(v_ref_mm_s) < 1e-3 and abs(v_real_mm_s) < 5.0:   #umbral deadband
+                pid.reset()
+                pwm_cmd = 0.0
+            else:
+                pwm_cmd = pid.compute(error_mm_s)
+            """
             # PID incremental — SIN dt (ver nota de diseño #1)
             pwm_cmd = pid.compute(error_mm_s)
 
+            # Zona muerta del actuador (fricción estática)
+            pwm_eff = apply_deadzone(pwm_cmd, dz)
+
             # Planta del motor: ganancia estática (PWM -> rad/s)
-            omega_from_pwm = pwm_cmd * self._motor_gain_k
+            omega_from_pwm = pwm_eff * self._motor_gain_k
+            
+            """# Planta del motor: ganancia estática (PWM -> rad/s)
+            omega_from_pwm = pwm_cmd * self._motor_gain_k"""
 
             # Dinámica electromecánica real (retraso de primer orden)
             omega_filtered = self._motor_lags[i].filter(omega_from_pwm, dt)
@@ -532,6 +556,11 @@ class MecanumKinematicNode(Node):
         )
         return SetParametersResult(successful=True)
 
+def apply_deadzone(pwm: float, dz: float) -> float:
+    #Zona muerta con recta desplazada: continua en |pwm| = dz.
+    if abs(pwm) <= dz:
+        return 0.0
+    return math.copysign(abs(pwm) - dz, pwm)
 
 def main(args=None):
     rclpy.init(args=args)
