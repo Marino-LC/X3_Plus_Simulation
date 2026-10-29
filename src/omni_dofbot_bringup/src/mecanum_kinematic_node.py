@@ -499,26 +499,6 @@ class MecanumKinematicNode(Node):
             else:
                 omega_filtered = 0.0
 
-            """
-            Al mandar comandos de velocidad y posteriormente quitarla, el robot quedaba 
-            con una velocidad congelada por la banda muerta del PID, por ello se agregA
-            el siguiente codigo que si al haber una velocidad muy lenta la elimina -> 0.0
-            
-            if abs(v_ref_mm_s) < 1e-3 and abs(v_real_mm_s) < 5.0:   #umbral deadband
-                pid.reset()
-                pwm_cmd = 0.0
-            else:
-                pwm_cmd = pid.compute(error_mm_s)
-            """
-            # PID incremental — SIN dt (ver nota de diseño #1)
-            # pwm_cmd = pid.compute(error_mm_s)
-
-            # Planta del motor: ganancia estática (PWM -> rad/s)
-            # omega_from_pwm = pwm_cmd * self._motor_gain_k
-
-            # Dinámica electromecánica real (retraso de primer orden)
-            # omega_filtered = self._motor_lags[i].filter(omega_from_pwm, dt)
-
             # Clamp final de seguridad (protege a Gazebo de valores absurdos
             # si motor_gain_k o pwm_max están mal calibrados)
             omega_final = float(np.clip(omega_filtered, -max_vel, max_vel))
@@ -580,12 +560,6 @@ class MecanumKinematicNode(Node):
             f'motor_gain_k={gain_k:.5f} motor_tau={tau:.4f}s'
         )
         return SetParametersResult(successful=True)
-
-"""def apply_deadzone(pwm: float, dz: float) -> float:
-    #Zona muerta con recta desplazada: continua en |pwm| = dz.
-    if abs(pwm) <= dz:
-        return 0.0
-    return math.copysign(abs(pwm) - dz, pwm)"""
 
 def main(args=None):
     rclpy.init(args=args)
