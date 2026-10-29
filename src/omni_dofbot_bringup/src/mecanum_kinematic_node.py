@@ -417,6 +417,10 @@ class MecanumKinematicNode(Node):
             f'rate={rate:.0f}Hz'
         )
 
+        # ── Implementacion time_sim ───────────────────────────────────────
+        if not self.get_parameter('use_sim_time').value:
+            self.get_logger().warn('use_sim_time=false: el fitness dependerá del RTF de la PC')
+
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _cmd_vel_cb(self, msg: Twist):
@@ -459,6 +463,9 @@ class MecanumKinematicNode(Node):
         now = self.get_clock().now()
         dt  = (now - self._last_time).nanoseconds * 1e-9
         self._last_time = now
+        if dt <= 0.0:          # primer tick o /clock detenido
+            return
+        dt = min(dt, 0.1)
 
         r = self.get_parameter('wheel_radius').value
         max_vel = self.get_parameter('max_wheel_vel').value
@@ -510,6 +517,9 @@ class MecanumKinematicNode(Node):
         self._wheel_cmd_pub.publish(msg)
 
     def _on_reset_state(self, request, response):
+        # El periodo del PID queda fijo en ~10ms de simulacion
+        self._last_time = self.get_clock().now()
+
         """Reinicia el acumulador PWM del PID incremental y el estado del
         filtro de motor. Llamar después de cada teleport del robot (junto
         con ~/reset_pose de mecanum_odometry_node)."""

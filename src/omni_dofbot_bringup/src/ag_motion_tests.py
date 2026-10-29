@@ -105,6 +105,8 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.parameter import Parameter as RclpyParameter
+from rclpy.time import Time
 
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
@@ -141,6 +143,8 @@ VY_REF = 0.40   # m/s  (no usado por las pruebas vigentes, se conserva por compa
 WZ_REF = 1.00   # rad/s
 
 # ── Lazo de control ───────────────────────────────────────────────────────────
+RTF_MIN = 0.90
+RTF_MAX_RETRIES = 3
 CTRL_DT      = 0.05   # s  (20 Hz)
 SETTLE_TIME  = 0.30   # s  pausa entre segmentos
 TIMEOUT_MOVE = 8     # s  timeout traslación
@@ -233,6 +237,9 @@ class IndividualLog:
     segments_p2: List[SegmentLog] = field(default_factory=list)
     segments_p3: List[SegmentLog] = field(default_factory=list)
     segments_p4: List[SegmentLog] = field(default_factory=list)
+    rtf_mean: float = float('nan')
+    rtf_min: float = float('nan')
+    retries: int = 0
 
 @dataclass
 class GenLog:
@@ -256,12 +263,39 @@ class Pose2D:
     def dist(self, o): return math.hypot(self.x-o.x, self.y-o.y)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Muestreo de reloj de simulacion, sin suscripcion extra a /clock
+# ══════════════════════════════════════════════════════════════════════════════
+class RtfMonitor:
+    def __init__(self, node, period=0.5):
+        self._node, self._period = node, period
+        self._lock, self._samples, self._active = threading.Lock(), [], False
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        s0, w0 = self._node._now(), time.monotonic()
+        while True:
+            time.sleep(self._period)
+            s1, w1 = self._node._now(), time.monotonic()
+            rtf, s0, w0 = (s1 - s0) / (w1 - w0), s1, w1
+            with self._lock:
+                if self._active: self._samples.append(rtf)
+
+    def begin(self):
+        with self._lock: self._samples, self._active = [], True
+
+    def end(self):
+        with self._lock:
+            self._active, s = False, list(self._samples)
+        return (sum(s)/len(s), min(s)) if s else (0.0, 0.0)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Nodo principal
 # ══════════════════════════════════════════════════════════════════════════════
 class AGMotionEvaluator(Node):
 
     def __init__(self):
-        super().__init__("ag_motion_evaluator")
+        super().__init__("ag_motion_evaluator",
+        parameter_overrides=[Parameter('use_sim_time', RclpyParameter.Type.BOOL, True)])
         cbg = ReentrantCallbackGroup()
 
         # ── Publishers ────────────────────────────────────────────────────────
@@ -334,7 +368,20 @@ class AGMotionEvaluator(Node):
         # una corrida larga sin adivinar en qué punto va.
         self._eval_start_time = time.time()
 
+        self._rtf = RtfMonitor(self)
+
         self.get_logger().info("AGMotionEvaluator listo.")
+
+    def _now(self) -> float:
+    return self.get_clock().now().nanoseconds * 1e-9
+
+    def _sleep(self, sec: float):
+        """Espera `sec` s de SIMULACIÓN, con watchdog de pared por si Gazebo se pausa."""
+        t_end, w_end = self._now() + sec, time.monotonic() + max(5.0, sec * 20)
+        while self._now() < t_end:
+            if time.monotonic() > w_end:
+                self.get_logger().warn("Gazebo pausado o muy lento"); break
+            time.sleep(0.001)
 
     # ── Odometría ─────────────────────────────────────────────────────────────
     def _odom_cb(self, msg: Odometry):
@@ -370,7 +417,7 @@ class AGMotionEvaluator(Node):
             self._vel_real = (vx, vy, wz)
 
             if self._measuring:
-                now = time.time()
+                now = Time.from_msg(msg.header.stamp).nanoseconds * 1e-9
                 dt = now - self._last_odom_t
                 if dt <= 0.0: dt = 0.001
                 self._last_odom_t = now
@@ -449,8 +496,8 @@ class AGMotionEvaluator(Node):
             self._itae_accum   = 0.0
 
             # Iniciar relojes
-            self._start_eval_t = time.time()
-            self._last_odom_t  = time.time()
+            self._start_eval_t = time._now()
+            self._last_odom_t  = time._now()
 
             self._measuring    = True
             self._seg_log      = seg_log
@@ -470,9 +517,9 @@ class AGMotionEvaluator(Node):
             return
 
         fut = self._reset_odom_cli.call_async(Empty.Request())
-        t0  = time.time()
-        while not fut.done() and time.time() - t0 < 2.0:
-            time.sleep(0.05)
+        t0  = self._now()
+        while not fut.done() and self._now() - t0 < 2.0:
+            self._sleep(0.05)
 
         if fut.done():
             self.get_logger().info("Odometría reseteada a (0, 0, 90°).")
@@ -580,7 +627,7 @@ class AGMotionEvaluator(Node):
     # ── Teleport ──────────────────────────────────────────────────────────────
     def _teleport(self):
         self._stop()
-        time.sleep(0.15)
+        self._sleep(0.15)
         done = False
         if self._tp_cli.wait_for_service(timeout_sec=2.0):
             req = SetEntityPose.Request()
@@ -609,12 +656,12 @@ class AGMotionEvaluator(Node):
             except subprocess.CalledProcessError as e:
                 self.get_logger().error(f"Teleport gz falló: {e.stderr.decode()}")
 
-        time.sleep(0.80)
+        self._sleep(0.80)
 
         # ORDEN CORREGIDO: resetear ANTES de fijar el origen, no después.
         self._reset_odometry()
         self._reset_controller()
-        time.sleep(0.10)            # deja llegar al menos un /odom ya en cero
+        self._sleep(0.10)            # deja llegar al menos un /odom ya en cero
         self._fix_origin()
 
     # ── Primitivas de movimiento ──────────────────────────────────────────────
@@ -632,11 +679,11 @@ class AGMotionEvaluator(Node):
         slog = SegmentLog(name=seg_name)
         self._start_itae(target, slog)
 
-        t0 = time.time()
+        t0 = self._now()
         ok = False
         aborted = False
 
-        while time.time() - t0 < timeout:
+        while time.sleep(CTRL_DT) - t0 < timeout:
             if self._is_tipped():
                 self.get_logger().warn("Aborto temprano — robot volcado")
                 break
@@ -672,8 +719,8 @@ class AGMotionEvaluator(Node):
 
         self._stop()
         itae = self._stop_itae()
-        elapsed = time.time() - t0
-        time.sleep(SETTLE_TIME)
+        elapsed = time.sleep(SETTLE_TIME) - t0
+        time._sleep(SETTLE_TIME)
 
         ok_final = ok and not aborted
         return itae, elapsed, ok_final, slog
@@ -746,7 +793,7 @@ class AGMotionEvaluator(Node):
         self.get_logger().info("── P1: línea recta adelante-atrás ──")
         self._teleport()
 
-        time.sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
             self.get_logger().warn("P1: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
@@ -785,7 +832,7 @@ class AGMotionEvaluator(Node):
     def _run_test2(self, record=False):
         self.get_logger().info("── P2: rotación pura +90°/-90° ──")
         self._teleport()
-        time.sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
             self.get_logger().warn("P2: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
@@ -817,7 +864,7 @@ class AGMotionEvaluator(Node):
     def _run_test3(self, record=False):
         self.get_logger().info("── P3: avance + giro + regreso de frente ──")
         self._teleport()
-        time.sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
             self.get_logger().warn("P3: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
@@ -856,7 +903,7 @@ class AGMotionEvaluator(Node):
         self.get_logger().info("── P4: línea recta izquierda-derecha ──")
         self._teleport()
 
-        time.sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
             self.get_logger().warn("P1: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
@@ -881,6 +928,19 @@ class AGMotionEvaluator(Node):
             f"   ITAE={i1+i2:.4f} t={t1+t2:.1f}s err_f={err_f:.3f}m cost={cost:.4f}")
         return cost, ([s1, s2] if record else [])
 
+    # ── Reintentos si la metrica es invalida ────────────────────────────────────────────────────────────
+    def _gated(self, run_fn):
+    for attempt in range(1, RTF_MAX_RETRIES + 1):
+        self._rtf.begin()
+        result = run_fn()
+        mean, mn = self._rtf.end()
+        if mean >= RTF_MIN:
+            return result, mean, mn, attempt - 1
+        self.get_logger().warn(f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
+                               f"evaluación descartada, intento {attempt}/{RTF_MAX_RETRIES}")
+        time.sleep(2.0)
+    raise RuntimeError("RTF insuficiente tras reintentos")
+
     # ── Evaluación ────────────────────────────────────────────────────────────
     def evaluate(self, individual) -> tuple:
         kp, ki, kd = individual
@@ -898,13 +958,24 @@ class AGMotionEvaluator(Node):
         # --------------------------------------
 
         self.get_logger().info(f"[AG] Kp={kp:.3f} Ki={ki:.3f} Kd={kd:.3f}")
-        self._set_pid(kp, ki, kd)
 
-        c1, _ = self._run_test1()
-        c2, _ = self._run_test2()
-        c3, _ = self._run_test3()
-        c4, _ = self._run_test4()
+        def _battery():
+            self._set_pid(kp, ki, kd)
+            return (self._run_test1()[0], self._run_test2()[0],
+                    self._run_test3()[0], self._run_test4()[0])
+
+        (c1, c2, c3, c4), rtf_mean, rtf_min, retries = self._gated(_battery)
         fitness = W1*c1 + W2*c2 + W3*c3 + W4*c4
+
+        def _battery():
+            self._set_pid(kp, ki, kd)
+            _, s1 = self._run_test1(record=True)
+            _, s2 = self._run_test2(record=True)
+            _, s3 = self._run_test3(record=True)
+            _, s4 = self._run_test4(record=True)
+            return s1, s2, s3, s4
+        (segs1, segs2, segs3, segs4), *_ = self._gated(_battery)
+        return segs1, segs2, segs3, segs4
 
         ilog = IndividualLog(
             gen=self._current_gen, idx=self._current_idx,
@@ -1263,6 +1334,10 @@ def main(args=None):
     executor.add_node(node)
     ros_thread = threading.Thread(target=executor.spin, daemon=True)
     ros_thread.start()
+
+    while node._now() == 0.0:
+        time.sleep(0.05)
+    node.get_logger().info("Reloj de simulación activo.")
 
     try:
         toolbox = base.Toolbox()

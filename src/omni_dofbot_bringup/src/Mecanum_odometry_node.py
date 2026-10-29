@@ -45,6 +45,7 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TransformStamped
 from std_srvs.srv import Empty
 import tf2_ros
+from rclpy.time import Time
 
 # Signo por rueda: [FL, FR, BR, BL]
 # Cambia a -1 las que estén físicamente invertidas para que la cinemática
@@ -140,7 +141,7 @@ class MecanumOdometryNode(Node):
         wz = r / (4.0 * k) * (-w0 + w1 + w2 - w3)
 
         # ── Integración temporal ──────────────────────────────────────────────
-        now = self.get_clock().now()
+        now = Time.from_msg(msg.header.stamp)
         if self._last_stamp is None:
             self._last_stamp = now
             return

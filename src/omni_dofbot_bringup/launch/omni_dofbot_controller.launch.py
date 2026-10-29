@@ -78,6 +78,22 @@ def generate_launch_description():
         output='screen'
     )
 
+    kinematic = Node(
+        package='omni_dofbot_bringup', 
+        executable='mecanum_kinematic_node.py',
+        name='mecanum_kinematic_node',
+        parameters=[{'use_sim_time': True}],
+        output='screen'
+        )
+
+    odometry  = Node(
+        package='omni_dofbot_bringup',
+        executable='mecanum_odometry_node.py',
+        name='mecanum_odometry_node',
+        parameters=[{'use_sim_time': True}],
+        output='screen'
+        )
+
     # ── Estrategia definitiva ─────────────────────────────────────────────────
     #
     # El error de mimic bloquea el primer switch_controller por 5s.
@@ -206,6 +222,13 @@ def generate_launch_description():
             event_handler=OnProcessExit(
                 target_action=spawner_jsb,
                 on_exit=[activate_wheels]
+            )
+        ),
+        # 6. Activa tiempo de simulacion en nodo de cinematica y odometria
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=activate_wheels,
+                on_exit=[mecanum_kinematic_node, mecanum_odometry_node]
             )
         ),
     ])
