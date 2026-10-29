@@ -208,8 +208,9 @@ MOTOR_GAIN_K_DOMINIO_B_MM_S = 17.09   # mm/s por unidad de set_motor() — medid
 MOTOR_GAIN_K_DEFAULT = (MOTOR_GAIN_K_DOMINIO_B_MM_S / (1000.0 * 0.040)) / PWM_CMD_TO_RAW_SCALE
 # = 0.0213625 rad/s por unidad de PWM crudo (bajo Hipótesis A)
 
-# Zona muerta promedio del actuador con carga: 18.8 unidades de set_motor() x 20 ticks/unidad
-PWM_DEADZONE_DEFAULT = 376.0
+# Zona muerta promedio del actuador con carga
+PWM_BREAKAWAY_DEFAULT = 18.8 * PWM_CMD_TO_RAW_SCALE
+# = 376.0 ticks de pwm
 
 # ── PLACEHOLDER — banda muerta de error, ver nota de diseño #7 abajo ──────
 # Adaptación (NO transcripción literal) del mecanismo de banda muerta
@@ -360,8 +361,9 @@ class MecanumKinematicNode(Node):
 
         # Planta del motor (Sim2Real)
         self.declare_parameter('motor_gain_k',  MOTOR_GAIN_K_DEFAULT)  # rad/s por PWM
-        self.declare_parameter('pwm_deadzone', PWM_DEADZONE_DEFAULT)   # ticks crudos, igual para las 4 ruedas
         self.declare_parameter('motor_tau',     0.5797)
+        self.declare_parameter('pwm_breakaway', PWM_BREAKAWAY_DEFAULT) # ticks crudos, igual para las 4 ruedas
+        self._moving = [False] * 4                                     # estado de friccion estatica por rueda
 
         # Callback para actualizar parámetros en tiempo de ejecución
         self.add_on_set_parameters_callback(self._on_params_change)
@@ -456,7 +458,6 @@ class MecanumKinematicNode(Node):
         """
         now = self.get_clock().now()
         dt  = (now - self._last_time).nanoseconds * 1e-9
-        dz = self.get_parameter('pwm_deadzone').value
         self._last_time = now
 
         r = self.get_parameter('wheel_radius').value
@@ -465,11 +466,38 @@ class MecanumKinematicNode(Node):
         # rad/s -> mm/s para operar en el mismo dominio que el firmware
         mm_per_rad_s = r * 1000.0
 
+        breakaway = self.get_parameter('pwm_breakaway').value
+        db = self.get_parameter('error_deadband_mm_s').value
+        omega_stop = db / mm_per_rad_s                        # 2mm/s / 40 = 0.05rad/s
+
         commands = []
         for i, pid in enumerate(self._pids):
             v_ref_mm_s  = self._omega_ref[i]  * mm_per_rad_s
             v_real_mm_s = self._omega_real[i] * mm_per_rad_s
             error_mm_s  = v_ref_mm_s - v_real_mm_s
+
+            # Evita que el PWM quede congelado y que PWM afecte al parar el motor la friccion
+            if abs(v_ref_mm_s) < 1e-3:
+                pid.reset()
+                pwm_cmd = 0.0
+            else:
+                # PID incremental — SIN dt (ver nota de diseño #1)
+                pwm_cmd = pid.compute(error_mm_s)
+
+            # Fricción estática: solo gobierna el ARRANQUE
+            if not self._moving[i] and abs(pwm_cmd) >= breakaway:
+                self._moving[i] = True
+
+            if self._moving[i]:
+                # Dinámica electromecánica real (retraso de primer orden)
+                omega_filtered = self._motor_lags[i].filter(pwm_cmd * self._motor_gain_k, dt)
+                # Inercia agotada: el motor se detiene solo
+                if abs(pwm_cmd) < breakaway and abs(omega_filtered) < omega_stop:
+                    self._moving[i] = False
+                    self._motor_lags[i].reset(0.0)
+                    omega_filtered = 0.0
+            else:
+                omega_filtered = 0.0
 
             """
             Al mandar comandos de velocidad y posteriormente quitarla, el robot quedaba 
@@ -483,19 +511,13 @@ class MecanumKinematicNode(Node):
                 pwm_cmd = pid.compute(error_mm_s)
             """
             # PID incremental — SIN dt (ver nota de diseño #1)
-            pwm_cmd = pid.compute(error_mm_s)
-
-            # Zona muerta del actuador (fricción estática)
-            pwm_eff = apply_deadzone(pwm_cmd, dz)
+            # pwm_cmd = pid.compute(error_mm_s)
 
             # Planta del motor: ganancia estática (PWM -> rad/s)
-            omega_from_pwm = pwm_eff * self._motor_gain_k
-            
-            """# Planta del motor: ganancia estática (PWM -> rad/s)
-            omega_from_pwm = pwm_cmd * self._motor_gain_k"""
+            # omega_from_pwm = pwm_cmd * self._motor_gain_k
 
             # Dinámica electromecánica real (retraso de primer orden)
-            omega_filtered = self._motor_lags[i].filter(omega_from_pwm, dt)
+            # omega_filtered = self._motor_lags[i].filter(omega_from_pwm, dt)
 
             # Clamp final de seguridad (protege a Gazebo de valores absurdos
             # si motor_gain_k o pwm_max están mal calibrados)
@@ -519,6 +541,9 @@ class MecanumKinematicNode(Node):
         self.get_logger().info(
             'Estado del controlador reiniciado (PID incremental + planta del motor).'
         )
+
+        self._moving = [False] * 4
+
         return response
 
     def _on_params_change(self, params):
@@ -556,11 +581,11 @@ class MecanumKinematicNode(Node):
         )
         return SetParametersResult(successful=True)
 
-def apply_deadzone(pwm: float, dz: float) -> float:
+"""def apply_deadzone(pwm: float, dz: float) -> float:
     #Zona muerta con recta desplazada: continua en |pwm| = dz.
     if abs(pwm) <= dz:
         return 0.0
-    return math.copysign(abs(pwm) - dz, pwm)
+    return math.copysign(abs(pwm) - dz, pwm)"""
 
 def main(args=None):
     rclpy.init(args=args)
