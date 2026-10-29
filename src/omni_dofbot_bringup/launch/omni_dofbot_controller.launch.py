@@ -228,7 +228,7 @@ def generate_launch_description():
         RegisterEventHandler(
             event_handler=OnProcessExit(
                 target_action=activate_wheels,
-                on_exit=[mecanum_kinematic_node, mecanum_odometry_node]
+                on_exit=[kinematic, odometry]
             )
         ),
     ])

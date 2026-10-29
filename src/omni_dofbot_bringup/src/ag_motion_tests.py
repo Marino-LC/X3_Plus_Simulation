@@ -295,7 +295,7 @@ class AGMotionEvaluator(Node):
 
     def __init__(self):
         super().__init__("ag_motion_evaluator",
-        parameter_overrides=[Parameter('use_sim_time', RclpyParameter.Type.BOOL, True)])
+        parameter_overrides=[RclpyParameter('use_sim_time', RclpyParameter.Type.BOOL, True)])
         cbg = ReentrantCallbackGroup()
 
         # ── Publishers ────────────────────────────────────────────────────────
@@ -373,7 +373,7 @@ class AGMotionEvaluator(Node):
         self.get_logger().info("AGMotionEvaluator listo.")
 
     def _now(self) -> float:
-    return self.get_clock().now().nanoseconds * 1e-9
+        return self.get_clock().now().nanoseconds * 1e-9
 
     def _sleep(self, sec: float):
         """Espera `sec` s de SIMULACIÓN, con watchdog de pared por si Gazebo se pausa."""
@@ -496,8 +496,8 @@ class AGMotionEvaluator(Node):
             self._itae_accum   = 0.0
 
             # Iniciar relojes
-            self._start_eval_t = time._now()
-            self._last_odom_t  = time._now()
+            self._start_eval_t = self._now()
+            self._last_odom_t  = self._now()
 
             self._measuring    = True
             self._seg_log      = seg_log
@@ -518,8 +518,8 @@ class AGMotionEvaluator(Node):
 
         fut = self._reset_odom_cli.call_async(Empty.Request())
         t0  = self._now()
-        while not fut.done() and self._now() - t0 < 2.0:
-            self._sleep(0.05)
+        while not fut.done() and time.time() - t0 < 2.0:
+            time.sleep(0.05)
 
         if fut.done():
             self.get_logger().info("Odometría reseteada a (0, 0, 90°).")
@@ -558,9 +558,9 @@ class AGMotionEvaluator(Node):
     def _wait_arm(self, duration_sec: float) -> bool:
         """Espera duration_sec mientras self._arm_active siga activo.
         Devuelve False si el hilo debe detenerse anticipadamente."""
-        t0 = time.time()
-        while self._arm_active and time.time() - t0 < duration_sec:
-            time.sleep(0.05)
+        t0 = self._now()
+        while self._arm_active and self._now() - t0 < duration_sec:
+            self._sleep(0.05)
         return self._arm_active
 
     def _arm_loop(self):
@@ -683,7 +683,7 @@ class AGMotionEvaluator(Node):
         ok = False
         aborted = False
 
-        while time.sleep(CTRL_DT) - t0 < timeout:
+        while self._now() - t0 < timeout:
             if self._is_tipped():
                 self.get_logger().warn("Aborto temprano — robot volcado")
                 break
@@ -715,12 +715,12 @@ class AGMotionEvaluator(Node):
                 break
 
             self._send(vx=vx, vy=vy)
-            time.sleep(CTRL_DT)
+            self._sleep(CTRL_DT)
 
         self._stop()
         itae = self._stop_itae()
-        elapsed = time.sleep(SETTLE_TIME) - t0
-        time._sleep(SETTLE_TIME)
+        elapsed = self._now() - t0
+        self._sleep(SETTLE_TIME)
 
         ok_final = ok and not aborted
         return itae, elapsed, ok_final, slog
@@ -730,13 +730,13 @@ class AGMotionEvaluator(Node):
         p0       = self._get_pose()
         goal_yaw = p0.yaw + angle_rad
         sign     = math.copysign(1.0, angle_rad)
-        t0, ok   = time.time(), False
+        t0, ok   = self._now(), False
 
         target = Pose2D(p0.x, p0.y, goal_yaw)
         slog   = SegmentLog(name=seg_name) if seg_name else None
         self._start_itae(target, slog)
 
-        while time.time()-t0 < timeout:
+        while self._now()-t0 < timeout:
             if self._is_tipped():
                 self.get_logger().warn("Aborto temprano — robot volcado")
                 break
@@ -748,7 +748,7 @@ class AGMotionEvaluator(Node):
 
             wz = sign * max(0.15, min(WZ_REF, abs(diff)*1.5))
 
-            t_rel    = time.time() - t0
+            t_rel    = self._now() - t0
             est_total = max(abs(angle_rad) / WZ_REF, 1e-3)
             frac      = min(1.0, t_rel / est_total)
             with self._lock:
@@ -757,7 +757,7 @@ class AGMotionEvaluator(Node):
 
             # CHANGELOG #1 — ya NO se toca slog aquí, lo llena _odom_cb
             self._send(wz=wz)
-            time.sleep(CTRL_DT)
+            self._sleep(CTRL_DT)
 
         self._stop()
         with self._lock:
@@ -766,8 +766,8 @@ class AGMotionEvaluator(Node):
 
         p       = self._get_pose()
         diff    = (goal_yaw - p.yaw + math.pi) % (2*math.pi) - math.pi
-        elapsed = time.time() - t0
-        time.sleep(SETTLE_TIME)
+        elapsed = self._now() - t0
+        self._sleep(SETTLE_TIME)
         return abs(diff), ok, slog, elapsed
 
     # ── PID ───────────────────────────────────────────────────────────────────
@@ -930,16 +930,16 @@ class AGMotionEvaluator(Node):
 
     # ── Reintentos si la metrica es invalida ────────────────────────────────────────────────────────────
     def _gated(self, run_fn):
-    for attempt in range(1, RTF_MAX_RETRIES + 1):
-        self._rtf.begin()
-        result = run_fn()
-        mean, mn = self._rtf.end()
-        if mean >= RTF_MIN:
-            return result, mean, mn, attempt - 1
-        self.get_logger().warn(f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
-                               f"evaluación descartada, intento {attempt}/{RTF_MAX_RETRIES}")
-        time.sleep(2.0)
-    raise RuntimeError("RTF insuficiente tras reintentos")
+        for attempt in range(1, RTF_MAX_RETRIES + 1):
+            self._rtf.begin()
+            result = run_fn()
+            mean, mn = self._rtf.end()
+            if mean >= RTF_MIN:
+                return result, mean, mn, attempt - 1
+            self.get_logger().warn(f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
+                                f"evaluación descartada, intento {attempt}/{RTF_MAX_RETRIES}")
+            time.sleep(2.0)
+        raise RuntimeError("RTF insuficiente tras reintentos")
 
     # ── Evaluación ────────────────────────────────────────────────────────────
     def evaluate(self, individual) -> tuple:
@@ -967,6 +967,24 @@ class AGMotionEvaluator(Node):
         (c1, c2, c3, c4), rtf_mean, rtf_min, retries = self._gated(_battery)
         fitness = W1*c1 + W2*c2 + W3*c3 + W4*c4
 
+        ilog = IndividualLog(
+            gen=self._current_gen, idx=self._current_idx,
+            kp=kp, ki=ki, kd=kd,
+            cost_p1=c1, cost_p2=c2, cost_p3=c3, cost_p4=c4, fitness=fitness,
+            rtf_mean=rtf_mean, rtf_min=rtf_min, retries=retries)
+        self._all_individuals.append(ilog)
+        self._current_idx += 1
+
+        self.get_logger().info(
+            f"[AG] P1={c1:.4f} P2={c2:.4f} P3={c3:.4f} P4={c4:.4f} fit={fitness:.5f} "
+            f"RTF={rtf_mean:.2f} (min {rtf_min:.2f}) retries={retries}")
+        return (fitness,)
+
+    def record_best(self, best_ind):
+        kp, ki, kd = best_ind
+        self.get_logger().info(
+            f"[AG] Grabando mejor: Kp={kp:.3f} Ki={ki:.3f} Kd={kd:.3f}")
+
         def _battery():
             self._set_pid(kp, ki, kd)
             _, s1 = self._run_test1(record=True)
@@ -976,29 +994,6 @@ class AGMotionEvaluator(Node):
             return s1, s2, s3, s4
         (segs1, segs2, segs3, segs4), *_ = self._gated(_battery)
         return segs1, segs2, segs3, segs4
-
-        ilog = IndividualLog(
-            gen=self._current_gen, idx=self._current_idx,
-            kp=kp, ki=ki, kd=kd,
-            cost_p1=c1, cost_p2=c2, cost_p3=c3, cost_p4=c4, fitness=fitness)
-        self._all_individuals.append(ilog)
-        self._current_idx += 1
-
-        self.get_logger().info(
-            f"[AG] P1={c1:.4f} P2={c2:.4f} P3={c3:.4f} P4={c4:.4f} fit={fitness:.5f}")
-        return (fitness,)
-
-    def record_best(self, best_ind):
-        kp, ki, kd = best_ind
-        self.get_logger().info(
-            f"[AG] Grabando mejor: Kp={kp:.3f} Ki={ki:.3f} Kd={kd:.3f}")
-        self._set_pid(kp, ki, kd)
-        c1, segs1 = self._run_test1(record=True)
-        c2, segs2 = self._run_test2(record=True)
-        c3, segs3 = self._run_test3(record=True)
-        c4, segs4 = self._run_test4(record=True)
-        return segs1, segs2, segs3, segs4
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Gráficas (matplotlib + plotly)
