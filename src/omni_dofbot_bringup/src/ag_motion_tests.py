@@ -266,27 +266,40 @@ class Pose2D:
 # Muestreo de reloj de simulacion, sin suscripcion extra a /clock
 # ══════════════════════════════════════════════════════════════════════════════
 class RtfMonitor:
-    def __init__(self, node, period=0.5):
-        self._node, self._period = node, period
-        self._lock, self._samples, self._active = threading.Lock(), [], False
+    """RTF = Δt_sim / Δt_pared.
+    mean: sobre TODA la evaluación (robusto al retraso del executor).
+    min : mínimo en ventanas largas de pared (no mide jitter puntual)."""
+    def __init__(self, node, window=3.0):
+        self._node, self._window = node, window
+        self._lock = threading.Lock()
+        self._active = False
+        self._s_begin = self._w_begin = 0.0
+        self._wins = []
         threading.Thread(target=self._run, daemon=True).start()
 
     def _run(self):
         s0, w0 = self._node._now(), time.monotonic()
         while True:
-            time.sleep(self._period)
+            time.sleep(self._window)
             s1, w1 = self._node._now(), time.monotonic()
-            rtf, s0, w0 = (s1 - s0) / (w1 - w0), s1, w1
             with self._lock:
-                if self._active: self._samples.append(rtf)
+                if self._active:
+                    self._wins.append((s1 - s0) / (w1 - w0))
+            s0, w0 = s1, w1
 
     def begin(self):
-        with self._lock: self._samples, self._active = [], True
+        with self._lock:
+            self._s_begin, self._w_begin = self._node._now(), time.monotonic()
+            self._wins, self._active = [], True
 
     def end(self):
+        s_end, w_end = self._node._now(), time.monotonic()
         with self._lock:
-            self._active, s = False, list(self._samples)
-        return (sum(s)/len(s), min(s)) if s else (0.0, 0.0)
+            self._active = False
+            wins = list(self._wins)
+            dw = w_end - self._w_begin
+            mean = (s_end - self._s_begin) / dw if dw > 0 else 0.0
+        return mean, (min(wins) if wins else mean)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Nodo principal
@@ -517,7 +530,7 @@ class AGMotionEvaluator(Node):
             return
 
         fut = self._reset_odom_cli.call_async(Empty.Request())
-        t0  = self._now()
+        t0  = time.time()
         while not fut.done() and time.time() - t0 < 2.0:
             time.sleep(0.05)
 

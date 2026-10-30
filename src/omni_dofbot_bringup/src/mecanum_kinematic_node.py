@@ -148,6 +148,7 @@ CONVENCIÓN DE RUEDAS (orden del controlador):
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rcl_interfaces.msg import SetParametersResult
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import JointState
@@ -343,7 +344,9 @@ class FirstOrderLag:
 class MecanumKinematicNode(Node):
 
     def __init__(self):
-        super().__init__('mecanum_kinematic_node')
+        super().__init__(
+            'mecanum_kinematic_node',
+            parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         # ── Parámetros ────────────────────────────────────────────────────
         self.declare_parameter('wheel_radius',  0.040)

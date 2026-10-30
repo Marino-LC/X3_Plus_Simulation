@@ -40,12 +40,13 @@ NOTA SOBRE LA POLARIDAD:
 import math
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TransformStamped
 from std_srvs.srv import Empty
 import tf2_ros
-from rclpy.time import Time
 
 # Signo por rueda: [FL, FR, BR, BL]
 # Cambia a -1 las que estén físicamente invertidas para que la cinemática
@@ -67,7 +68,9 @@ WHEEL_JOINTS = [
 class MecanumOdometryNode(Node):
 
     def __init__(self):
-        super().__init__('mecanum_odometry_node')
+        super().__init__(
+            'mecanum_odometry_node',
+            parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         # ── Parámetros ────────────────────────────────────────────────────────
         self.declare_parameter('wheel_radius', 0.040)
