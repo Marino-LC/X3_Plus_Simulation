@@ -7,14 +7,15 @@
   <!--
   <xacro:include filename="$(find omni_dofbot_description)/urdf/dofbot_without_base_urdf.xacro" />-->
   <xacro:include filename="$(find dofbot_description)/urdf/dofbot_arm_urdf.xacro" />
-
+  <xacro:include filename="$(find omni_description)/urdf/lidar_sensor.xacro" />
+  <xacro:include filename="$(find omni_description)/urdf/camera_sensor.xacro" />
+  <xacro:include filename="$(find dofbot_description)/urdf/monocular_camera_sensor.xacro"/>
+  
+  
   <!-- Sensores todavía no actualizados para gazebo harmonic, se mantienen los originales de Gazebo Classic para futuras actualizaciones -->
    <!--
    <xacro:include filename="$(find dofbot_description)/urdf/dofbot_sensors_urdf.xacro" />
-  <xacro:include filename="$(find omni_description)/urdf/camera_sensor.xacro" />
-  <xacro:include filename="$(find omni_description)/urdf/lidar_sensor.xacro" />
-  <xacro:include filename="$(find dofbot_description)/urdf/monocular_camera_sensor.xacro"/>
-  <xacro:include filename="$(find omni_description)/urdf/imu_sensor.xacro"/>
+   <xacro:include filename="$(find omni_description)/urdf/imu_sensor.xacro"/>
    -->
    
   <joint name="omni_to_dofbot_joint" type="fixed">
