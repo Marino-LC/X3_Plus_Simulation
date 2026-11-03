@@ -375,6 +375,10 @@ class MecanumKinematicNode(Node):
         self._breakaway = PWM_BREAKAWAY_X; # umbral vigente, se actualiza con cada cmd_vel
         self._moving = [False] * 4 # estado de friccion estatica por rueda
 
+        # Wachdog de cmd_vel
+        self.declare_parameter('cmd_vel_timeout', 0.5)   # s; <= 0 lo desactiva
+        self._last_cmd_time = self.get_clock().now()
+
         # Callback para actualizar parámetros en tiempo de ejecución
         self.add_on_set_parameters_callback(self._on_params_change)
 
@@ -434,6 +438,8 @@ class MecanumKinematicNode(Node):
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _cmd_vel_cb(self, msg: Twist):
+        self._last_cmd_time = self.get_clock().now()
+
         """Convierte Twist a velocidades de referencia por rueda (rad/s)."""
         r  = self.get_parameter('wheel_radius').value
         lx = self.get_parameter('lx').value
@@ -482,6 +488,12 @@ class MecanumKinematicNode(Node):
           5. Clamp final de seguridad -> comando a Gazebo
         """
         now = self.get_clock().now()
+
+        # Detiene el robot si pasan 0.5 segundos sin mensaje de cmd_vel
+        timeout = self.get_parameter('cmd_vel_timeout').value
+        if timeout > 0.0 and (now - self._last_cmd_time).nanoseconds * 1e-9 > timeout:
+            self._omega_ref[:] = 0.0
+
         dt  = (now - self._last_time).nanoseconds * 1e-9
         self._last_time = now
         if dt <= 0.0:          # primer tick o /clock detenido
