@@ -144,7 +144,7 @@ WZ_REF = 1.00   # rad/s
 
 # ── Lazo de control ───────────────────────────────────────────────────────────
 RTF_MIN = 0.90
-RTF_MAX_RETRIES = 3
+RTF_MAX_RETRIES = none
 CTRL_DT      = 0.05   # s  (20 Hz)
 SETTLE_TIME  = 0.30   # s  pausa entre segmentos
 TIMEOUT_MOVE = 8     # s  timeout traslación
@@ -943,16 +943,21 @@ class AGMotionEvaluator(Node):
 
     # ── Reintentos si la metrica es invalida ────────────────────────────────────────────────────────────
     def _gated(self, run_fn):
-        for attempt in range(1, RTF_MAX_RETRIES + 1):
+        attempt = 0
+        while True:
+            attempt += 1
             self._rtf.begin()
             result = run_fn()
             mean, mn = self._rtf.end()
             if mean >= RTF_MIN:
                 return result, mean, mn, attempt - 1
-            self.get_logger().warn(f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
-                                f"evaluación descartada, intento {attempt}/{RTF_MAX_RETRIES}")
+
+            self.get_logger().warn(
+                f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
+                f"evaluación descartada, reintento {attempt}")
+            if RTF_MAX_RETRIES is not None and attempt >= RTF_MAX_RETRIES
+                raise RuntimeError("RTF insuficiente tras reintentos")
             time.sleep(2.0)
-        raise RuntimeError("RTF insuficiente tras reintentos")
 
     # ── Evaluación ────────────────────────────────────────────────────────────
     def evaluate(self, individual) -> tuple:
