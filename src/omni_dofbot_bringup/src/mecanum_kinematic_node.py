@@ -209,9 +209,14 @@ MOTOR_GAIN_K_DOMINIO_B_MM_S = 17.09   # mm/s por unidad de set_motor() — medid
 MOTOR_GAIN_K_DEFAULT = (MOTOR_GAIN_K_DOMINIO_B_MM_S / (1000.0 * 0.040)) / PWM_CMD_TO_RAW_SCALE
 # = 0.0213625 rad/s por unidad de PWM crudo (bajo Hipótesis A)
 
-# Zona muerta promedio del actuador con carga
-PWM_BREAKAWAY_DEFAULT = 18.8 * PWM_CMD_TO_RAW_SCALE
-# = 376.0 ticks de pwm
+# Zona muerta promedio del actuador con carga para movimiento en X
+PWM_BREAKAWAY_X = 18.8 * PWM_CMD_TO_RAW_SCALE # = 376.0 ticks de pwm
+
+# Zona muerta promedio del actuador con carga para movimiento en X
+PWM_BREAKAWAY_Y = 22.2 * PWM_CMD_TO_RAW_SCALE # = 444.0 ticks de pwm
+
+# Zona muerta promedio del actuador con carga para movimiento en X
+PWM_BREAKAWAY_YAW = 17.6 * PWM_CMD_TO_RAW_SCALE # = 352.0 ticks de pwm
 
 # ── PLACEHOLDER — banda muerta de error, ver nota de diseño #7 abajo ──────
 # Adaptación (NO transcripción literal) del mecanismo de banda muerta
@@ -246,7 +251,6 @@ class PIDController:
         self.pwm_max = pwm_max
         self.error_deadband = max(0.0, error_deadband)
         
-
         self._output = 0.0     # acumulador de PWM (equivalente a pwm_output en C)
         self._err_k1 = 0.0     # error del ciclo anterior (err_next en C)
         self._err_k2 = 0.0     # error de dos ciclos atrás (err_last en C)
@@ -365,8 +369,11 @@ class MecanumKinematicNode(Node):
         # Planta del motor (Sim2Real)
         self.declare_parameter('motor_gain_k',  MOTOR_GAIN_K_DEFAULT)  # rad/s por PWM
         self.declare_parameter('motor_tau',     0.5797)
-        self.declare_parameter('pwm_breakaway', PWM_BREAKAWAY_DEFAULT) # ticks crudos, igual para las 4 ruedas
-        self._moving = [False] * 4                                     # estado de friccion estatica por rueda
+        self.declare_parameter('pwm_breakaway_x', PWM_BREAKAWAY_X) # ticks crudos, igual para las 4 ruedas
+        self.declare_parameter('pwm_breakaway_y', PWM_BREAKAWAY_Y) # ticks crudos, igual para las 4 ruedas
+        self.declare_parameter('pwm_breakaway_yaw', PWM_BREAKAWAY_YAW) # ticks crudos, igual para las 4 ruedas
+        self._breakaway = PWM_BREAKAWAY_X; # umbral vigente, se actualiza con cada cmd_vel
+        self._moving = [False] * 4 # estado de friccion estatica por rueda
 
         # Callback para actualizar parámetros en tiempo de ejecución
         self.add_on_set_parameters_callback(self._on_params_change)
@@ -447,6 +454,17 @@ class MecanumKinematicNode(Node):
 
         self._omega_ref = omega_raw * self.wheel_polarity
 
+        # Umbral de arranque según el tipo de movimiento pedido
+        cx = abs(vx) / r
+        cy = abs(vy) / r
+        cw = k * abs(wz) / r
+        total = cx + cy + cw
+        if total > 1e-6:    # con cmd_vel = 0 se conserva el último valor
+            bx = self.get_parameter('pwm_breakaway_x').value
+            by = self.get_parameter('pwm_breakaway_y').value
+            bw = self.get_parameter('pwm_breakaway_yaw').value
+            self._breakaway = (cx * bx + cy * by + cw * bw) / total
+
     def _joint_states_cb(self, msg: JointState):
         """Lee las velocidades reales de las ruedas desde /joint_states (rad/s)."""
         name_to_idx = {name: i for i, name in enumerate(WHEEL_JOINTS)}
@@ -476,7 +494,7 @@ class MecanumKinematicNode(Node):
         # rad/s -> mm/s para operar en el mismo dominio que el firmware
         mm_per_rad_s = r * 1000.0
 
-        breakaway = self.get_parameter('pwm_breakaway').value
+        breakaway = self._breakaway
         db = self.get_parameter('error_deadband_mm_s').value
         omega_stop = db / mm_per_rad_s                        # 2mm/s / 40 = 0.05rad/s
 
