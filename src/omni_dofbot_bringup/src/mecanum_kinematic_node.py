@@ -148,12 +148,14 @@ CONVENCIÓN DE RUEDAS (orden del controlador):
 
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rcl_interfaces.msg import SetParametersResult
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from std_srvs.srv import Empty
 import numpy as np
+import math
 
 
 WHEEL_JOINTS = [
@@ -207,6 +209,15 @@ MOTOR_GAIN_K_DOMINIO_B_MM_S = 17.09   # mm/s por unidad de set_motor() — medid
 MOTOR_GAIN_K_DEFAULT = (MOTOR_GAIN_K_DOMINIO_B_MM_S / (1000.0 * 0.040)) / PWM_CMD_TO_RAW_SCALE
 # = 0.0213625 rad/s por unidad de PWM crudo (bajo Hipótesis A)
 
+# Zona muerta promedio del actuador con carga para movimiento en X
+PWM_BREAKAWAY_X = 18.8 * PWM_CMD_TO_RAW_SCALE # = 376.0 ticks de pwm
+
+# Zona muerta promedio del actuador con carga para movimiento en X
+PWM_BREAKAWAY_Y = 22.2 * PWM_CMD_TO_RAW_SCALE # = 444.0 ticks de pwm
+
+# Zona muerta promedio del actuador con carga para movimiento en X
+PWM_BREAKAWAY_YAW = 17.6 * PWM_CMD_TO_RAW_SCALE # = 352.0 ticks de pwm
+
 # ── PLACEHOLDER — banda muerta de error, ver nota de diseño #7 abajo ──────
 # Adaptación (NO transcripción literal) del mecanismo de banda muerta
 # documentado para el PID POSICIONAL del firmware (±40 cuentas de encoder,
@@ -239,7 +250,7 @@ class PIDController:
         self.kd = kd
         self.pwm_max = pwm_max
         self.error_deadband = max(0.0, error_deadband)
-
+        
         self._output = 0.0     # acumulador de PWM (equivalente a pwm_output en C)
         self._err_k1 = 0.0     # error del ciclo anterior (err_next en C)
         self._err_k2 = 0.0     # error de dos ciclos atrás (err_last en C)
@@ -337,7 +348,9 @@ class FirstOrderLag:
 class MecanumKinematicNode(Node):
 
     def __init__(self):
-        super().__init__('mecanum_kinematic_node')
+        super().__init__(
+            'mecanum_kinematic_node',
+            parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         # ── Parámetros ────────────────────────────────────────────────────
         self.declare_parameter('wheel_radius',  0.040)
@@ -356,6 +369,15 @@ class MecanumKinematicNode(Node):
         # Planta del motor (Sim2Real)
         self.declare_parameter('motor_gain_k',  MOTOR_GAIN_K_DEFAULT)  # rad/s por PWM
         self.declare_parameter('motor_tau',     0.5797)
+        self.declare_parameter('pwm_breakaway_x', PWM_BREAKAWAY_X) # ticks crudos, igual para las 4 ruedas
+        self.declare_parameter('pwm_breakaway_y', PWM_BREAKAWAY_Y) # ticks crudos, igual para las 4 ruedas
+        self.declare_parameter('pwm_breakaway_yaw', PWM_BREAKAWAY_YAW) # ticks crudos, igual para las 4 ruedas
+        self._breakaway = PWM_BREAKAWAY_X; # umbral vigente, se actualiza con cada cmd_vel
+        self._moving = [False] * 4 # estado de friccion estatica por rueda
+
+        # Wachdog de cmd_vel
+        self.declare_parameter('cmd_vel_timeout', 0.5)   # s; <= 0 lo desactiva
+        self._last_cmd_time = self.get_clock().now()
 
         # Callback para actualizar parámetros en tiempo de ejecución
         self.add_on_set_parameters_callback(self._on_params_change)
@@ -409,9 +431,15 @@ class MecanumKinematicNode(Node):
             f'rate={rate:.0f}Hz'
         )
 
+        # ── Implementacion time_sim ───────────────────────────────────────
+        if not self.get_parameter('use_sim_time').value:
+            self.get_logger().warn('use_sim_time=false: el fitness dependerá del RTF de la PC')
+
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _cmd_vel_cb(self, msg: Twist):
+        self._last_cmd_time = self.get_clock().now()
+
         """Convierte Twist a velocidades de referencia por rueda (rad/s)."""
         r  = self.get_parameter('wheel_radius').value
         lx = self.get_parameter('lx').value
@@ -432,6 +460,17 @@ class MecanumKinematicNode(Node):
 
         self._omega_ref = omega_raw * self.wheel_polarity
 
+        # Umbral de arranque según el tipo de movimiento pedido
+        cx = abs(vx) / r
+        cy = abs(vy) / r
+        cw = k * abs(wz) / r
+        total = cx + cy + cw
+        if total > 1e-6:    # con cmd_vel = 0 se conserva el último valor
+            bx = self.get_parameter('pwm_breakaway_x').value
+            by = self.get_parameter('pwm_breakaway_y').value
+            bw = self.get_parameter('pwm_breakaway_yaw').value
+            self._breakaway = (cx * bx + cy * by + cw * bw) / total
+
     def _joint_states_cb(self, msg: JointState):
         """Lee las velocidades reales de las ruedas desde /joint_states (rad/s)."""
         name_to_idx = {name: i for i, name in enumerate(WHEEL_JOINTS)}
@@ -449,8 +488,17 @@ class MecanumKinematicNode(Node):
           5. Clamp final de seguridad -> comando a Gazebo
         """
         now = self.get_clock().now()
+
+        # Detiene el robot si pasan 0.5 segundos sin mensaje de cmd_vel
+        timeout = self.get_parameter('cmd_vel_timeout').value
+        if timeout > 0.0 and (now - self._last_cmd_time).nanoseconds * 1e-9 > timeout:
+            self._omega_ref[:] = 0.0
+
         dt  = (now - self._last_time).nanoseconds * 1e-9
         self._last_time = now
+        if dt <= 0.0:          # primer tick o /clock detenido
+            return
+        dt = min(dt, 0.1)
 
         r = self.get_parameter('wheel_radius').value
         max_vel = self.get_parameter('max_wheel_vel').value
@@ -458,20 +506,38 @@ class MecanumKinematicNode(Node):
         # rad/s -> mm/s para operar en el mismo dominio que el firmware
         mm_per_rad_s = r * 1000.0
 
+        breakaway = self._breakaway
+        db = self.get_parameter('error_deadband_mm_s').value
+        omega_stop = db / mm_per_rad_s                        # 2mm/s / 40 = 0.05rad/s
+
         commands = []
         for i, pid in enumerate(self._pids):
             v_ref_mm_s  = self._omega_ref[i]  * mm_per_rad_s
             v_real_mm_s = self._omega_real[i] * mm_per_rad_s
             error_mm_s  = v_ref_mm_s - v_real_mm_s
 
-            # PID incremental — SIN dt (ver nota de diseño #1)
-            pwm_cmd = pid.compute(error_mm_s)
+            # Evita que el PWM quede congelado y que PWM afecte al parar el motor la friccion
+            if abs(v_ref_mm_s) < 1e-3:
+                pid.reset()
+                pwm_cmd = 0.0
+            else:
+                # PID incremental — SIN dt (ver nota de diseño #1)
+                pwm_cmd = pid.compute(error_mm_s)
 
-            # Planta del motor: ganancia estática (PWM -> rad/s)
-            omega_from_pwm = pwm_cmd * self._motor_gain_k
+            # Fricción estática: solo gobierna el ARRANQUE
+            if not self._moving[i] and abs(pwm_cmd) >= breakaway:
+                self._moving[i] = True
 
-            # Dinámica electromecánica real (retraso de primer orden)
-            omega_filtered = self._motor_lags[i].filter(omega_from_pwm, dt)
+            if self._moving[i]:
+                # Dinámica electromecánica real (retraso de primer orden)
+                omega_filtered = self._motor_lags[i].filter(pwm_cmd * self._motor_gain_k, dt)
+                # Inercia agotada: el motor se detiene solo
+                if abs(pwm_cmd) < breakaway and abs(omega_filtered) < omega_stop:
+                    self._moving[i] = False
+                    self._motor_lags[i].reset(0.0)
+                    omega_filtered = 0.0
+            else:
+                omega_filtered = 0.0
 
             # Clamp final de seguridad (protege a Gazebo de valores absurdos
             # si motor_gain_k o pwm_max están mal calibrados)
@@ -484,6 +550,9 @@ class MecanumKinematicNode(Node):
         self._wheel_cmd_pub.publish(msg)
 
     def _on_reset_state(self, request, response):
+        # El periodo del PID queda fijo en ~10ms de simulacion
+        self._last_time = self.get_clock().now()
+
         """Reinicia el acumulador PWM del PID incremental y el estado del
         filtro de motor. Llamar después de cada teleport del robot (junto
         con ~/reset_pose de mecanum_odometry_node)."""
@@ -495,6 +564,9 @@ class MecanumKinematicNode(Node):
         self.get_logger().info(
             'Estado del controlador reiniciado (PID incremental + planta del motor).'
         )
+
+        self._moving = [False] * 4
+
         return response
 
     def _on_params_change(self, params):
@@ -531,7 +603,6 @@ class MecanumKinematicNode(Node):
             f'motor_gain_k={gain_k:.5f} motor_tau={tau:.4f}s'
         )
         return SetParametersResult(successful=True)
-
 
 def main(args=None):
     rclpy.init(args=args)

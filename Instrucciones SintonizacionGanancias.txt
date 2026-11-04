@@ -1,0 +1,21 @@
+Instrucciones Sintonizacion de Ganancias por Algoritmo Genetico
+
+1. Ir al espacio de trabajo
+cd ROS2Dev/Wheels_mecanum_ws/
+
+2. Ejecutar los comandos
+Terminal 1
+srcthis
+ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
+
+Terminal 2
+srcthis
+ros2 run omni_dofbot_bringup mecanum_kinematic_node.py
+
+Terminal 3
+srcthis
+ros2 run omni_dofbot_bringup Mecanum_odometry_node.py
+
+Terminal 4
+srcthis
+ros2 run omni_dofbot_bringup ag_motion_tests.py

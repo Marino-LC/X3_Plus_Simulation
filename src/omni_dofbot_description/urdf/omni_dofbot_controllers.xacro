@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <robot name="omni_dofbot_controllers" xmlns:xacro="http://ros.org/wiki/xacro">
 
+  <!-- Rodillos de las ruedas mecanum (9 por rueda)-->
+  <xacro:macro name="roller_state_joints" params="prefix">
+    <joint name="${prefix}_roller_1_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_2_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_3_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_4_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_5_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_6_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_7_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_8_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+    <joint name="${prefix}_roller_9_joint"><state_interface name="position"/><state_interface name="velocity"/></joint>
+  </xacro:macro>
+
   <!--
     NOMBRE ÚNICO: "OmniDofbotSystem" para evitar conflicto con el bloque
     name="GazeboSystem" que viene de dofbot_arm_urdf.xacro →
@@ -40,6 +53,12 @@
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
+
+   <!-- ══════════════ RODILLOS MECANUM ══════════════ -->
+    <xacro:roller_state_joints prefix="front_left"/>
+    <xacro:roller_state_joints prefix="front_right"/>
+    <xacro:roller_state_joints prefix="back_right"/>
+    <xacro:roller_state_joints prefix="back_left"/>
 
     <!-- ══════════════ BRAZO DOFBOT ══════════════ -->
     <joint name="arm_joint_01">
