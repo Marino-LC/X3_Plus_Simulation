@@ -135,7 +135,7 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # 10. El Administrador de Vida
+        # 10. Administrador de Vida
         # Este nodo se encarga de encender todos los nodos anteriores al mismo tiempo
         Node(
             package='nav2_lifecycle_manager',
