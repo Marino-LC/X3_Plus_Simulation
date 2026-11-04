@@ -75,14 +75,14 @@ def generate_launch_description():
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
-                   '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
-                   '/camera/image@sensor_msgs/msg/Image[gz.msgs.Image',
-                   '/camera/depth_image@sensor_msgs/msg/Image[gz.msgs.Image',
-                   '/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
-                   '/camera/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked',
-                   '/mono_camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
-                   '/mono_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
-                   '/imu@sensor_msgs/msg/Imu[gz.msgs.IMU',
+                #    '/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
+                #    '/camera/image@sensor_msgs/msg/Image[gz.msgs.Image',
+                #    '/camera/depth_image@sensor_msgs/msg/Image[gz.msgs.Image',
+                #    '/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+                #    '/camera/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked',
+                #    '/mono_camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
+                #    '/mono_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
+                #    '/imu@sensor_msgs/msg/Imu[gz.msgs.IMU',
                    ],
         output='screen'
     )
@@ -157,21 +157,15 @@ def generate_launch_description():
         output='screen'
     )
 
-    payload_arg = DeclareLaunchArgument('payload_mass', default_value='1.0')
-
-    robot_description = ParameterValue(
-        Command(['xacro ', urdf_path, ' payload_mass:=$(arg payload_mass)']), value_type=str
-    )
-
     config_arg = DeclareLaunchArgument(
         name='rvizconfig', default_value=rviz_config_path
     )
-    rviz2_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        arguments=['-d', rviz_config_path],
-        parameters=[{'use_sim_time': True}]
-    )
+    # rviz2_node = Node(
+    #     package='rviz2',
+    #     executable='rviz2',
+    #     arguments=['-d', rviz_config_path],
+    #     parameters=[{'use_sim_time': True}]
+    # )
 
     return LaunchDescription([
         set_gz_model_path,
@@ -180,7 +174,7 @@ def generate_launch_description():
         gazebo,
         spawn_entity,
         clock_bridge,
-        rviz2_node,
+        #rviz2_node,
 
         # 1. Cargar ruedas en INACTIVE (no dispara switch, no falla)
         RegisterEventHandler(

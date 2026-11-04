@@ -43,7 +43,7 @@
   </joint>
 
   <!-- MONOCULAR CAMERA --> 
-  <gazebo reference="monocular_camera_link">
+  <!-- <gazebo reference="monocular_camera_link">
     <sensor type="camera" name="mono_camera">
       <always_on>true</always_on>
       <update_rate>30.0</update_rate>
@@ -62,6 +62,6 @@
         </clip>
       </camera>
     </sensor>
-  </gazebo>
+  </gazebo> -->
 
 </robot>
