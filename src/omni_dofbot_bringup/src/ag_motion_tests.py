@@ -94,6 +94,25 @@ CHANGELOG respecto a la versión anterior (documentado para la tesis)
    podía recibir error de posición pequeño (al no moverse) y ser
    calificado como buen desempeño por error. Se aplica el mismo
    PENALTY_TO ya usado para timeouts.
+
+7. DESCARTE POR RTF CON LÍMITE DE INTENTOS:
+   _gated() Durante la evolución, tras RTF_MAX_RETRIES (=3)
+   intentos fallidos con las mismas ganancias se lanza RTFExhausted: el
+   individuo se DESCARTA y su lugar lo ocupa un nuevo controlador aleatorio.
+   El contador de individuo (_current_idx) NO avanza con un descarte, solo
+   con evaluaciones válidas. record_best() y los sintonizadores ZN siguen
+   reintentando sin límite (max_attempts=None), porque ahí no se puede
+   sustituir el controlador.
+
+8. REINICIO ITERATIVO CON SEMILLA:
+   Ronda 1: la población inicial incluye la semilla [Kp=1, Ki=0, Kd=0]
+   (valores por defecto del nodo) y se corren las N_GEN generaciones
+   completas. Al terminar, la mejor solución global pasa a ser la semilla
+   de la ronda siguiente. En las rondas >= 2, tras la primera generación se
+   compara el mejor fitness contra el de la semilla: si no mejoró al menos
+   MIN_IMPROVEMENT_GEN1 (10 %), la prueba termina y se conserva el mejor
+   controlador global; si mejoró, la ronda se completa y se repite el ciclo.
+   MAX_ROUNDS es solo un tope de seguridad.
 """
 
 import math, time, threading, subprocess, random, json, os, webbrowser
@@ -144,7 +163,7 @@ WZ_REF = 1.00   # rad/s
 
 # ── Lazo de control ───────────────────────────────────────────────────────────
 RTF_MIN = 0.90
-RTF_MAX_RETRIES = none
+RTF_MAX_RETRIES = 3   # Intentos por controlador antes de descartarlo
 CTRL_DT      = 0.05   # s  (20 Hz)
 SETTLE_TIME  = 0.30   # s  pausa entre segmentos
 TIMEOUT_MOVE = 8     # s  timeout traslación
@@ -179,6 +198,14 @@ KD_RANGE    = (0.0, 2.0)    # ~4× el valor del fabricante
 MUT_SIGMA   = [0.40, 0.08, 0.16]   # [Kp, Ki, Kd]
 GAIN_DECIMALS = 3   # resolución máxima "perceptible" de Kp/Ki/Kd
 
+# ── Reinicio iterativo con semilla ─────────────────────────────
+SEED_INICIAL             = [1.0, 0.0, 0.0]   # [Kp, Ki, Kd] semilla de la ronda 1
+MIN_IMPROVEMENT_GEN1     = 0.10              # mejora mínima (10 %) tras la 1a generación
+                                             # de las rondas >= 2 para continuar
+MAX_ROUNDS               = 10                # tope de seguridad de rondas
+MAX_CONSECUTIVE_DISCARDS = 10                # descartes seguidos en un mismo hueco antes
+                                             # de abortar (Gazebo claramente sobrecargado)
+
 W1, W2, W3, W4  = 0.25, 0.20, 0.30, 0.25,    # pesos P1 (recta), P2 (giro), P3 (combinada)
 PENALTY_TO  = 50.0
 
@@ -204,6 +231,10 @@ GRIP_CLOSED = -0.75
 OUT_PNG  = "ag_results.png"
 OUT_HTML = "ag_results.html"
 OUT_JSON = "ag_results.json"
+
+class RTFExhausted(Exception):
+    """Se agotaron los intentos con RTF >= RTF_MIN para un mismo controlador."""
+    pass
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Estructuras de datos para logging
@@ -240,12 +271,14 @@ class IndividualLog:
     rtf_mean: float = float('nan')
     rtf_min: float = float('nan')
     retries: int = 0
+    round: int = 1
 
 @dataclass
 class GenLog:
     gen: int
     min_fit: float; mean_fit: float; max_fit: float
     best_kp: float; best_ki: float; best_kd: float
+    round: int = 1
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DEAP
@@ -374,6 +407,12 @@ class AGMotionEvaluator(Node):
         self._current_gen = 0
         self._current_idx = 0
         self._arm_active  = False
+
+        # CHANGELOG #7/#8 — estado de rondas y descartes por RTF
+        self._current_round = 1
+        self._gen_offset    = 0      # generaciones acumuladas de rondas previas
+        self._discarded     = []     # controladores descartados por RTF
+        self._round_logs    = []     # resumen de cada ronda
 
         # CHANGELOG #6 — timestamp de arranque, usado para reportar tiempo
         # transcurrido junto con el progreso de generación/individuo en cada
@@ -941,8 +980,14 @@ class AGMotionEvaluator(Node):
             f"   ITAE={i1+i2:.4f} t={t1+t2:.1f}s err_f={err_f:.3f}m cost={cost:.4f}")
         return cost, ([s1, s2] if record else [])
 
-    # ── Reintentos si la metrica es invalida ────────────────────────────────────────────────────────────
-    def _gated(self, run_fn):
+    # ── Reintentos si la metrica es invalida ──────────────────────────────────
+    def _gated(self, run_fn, max_attempts=None):
+        """Ejecuta run_fn y la repite mientras el RTF medio sea < RTF_MIN.
+        max_attempts=None  -> reintenta indefinidamente (record_best, ZN).
+        max_attempts=N     -> tras N intentos fallidos con las MISMAS ganancias
+                              lanza RTFExhausted (CHANGELOG #7); quien llama
+                              decide qué controlador evaluar en su lugar.
+        """
         attempt = 0
         while True:
             attempt += 1
@@ -954,13 +999,16 @@ class AGMotionEvaluator(Node):
 
             self.get_logger().warn(
                 f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
-                f"evaluación descartada, reintento {attempt}")
-            if RTF_MAX_RETRIES is not None and attempt >= RTF_MAX_RETRIES
-                raise RuntimeError("RTF insuficiente tras reintentos")
+                f"evaluación descartada, intento {attempt}"
+                f"/{max_attempts if max_attempts is not None else '∞'}")
+            if max_attempts is not None and attempt >= max_attempts:
+                raise RTFExhausted(
+                    f"RTF < {RTF_MIN} en {attempt} intentos consecutivos "
+                    f"(último RTF={mean:.2f})")
             time.sleep(2.0)
 
     # ── Evaluación ────────────────────────────────────────────────────────────
-    def evaluate(self, individual) -> tuple:
+    def evaluate(self, individual, max_attempts=None) -> tuple:
         kp, ki, kd = individual
 
         # --- IMPLEMENTACIÓN DEL CHANGELOG 6 ---
@@ -970,6 +1018,7 @@ class AGMotionEvaluator(Node):
         
         self.get_logger().info(
             f"=== [Progreso AG] Tiempo: {h:02d}:{m:02d}:{s:02d} | "
+            f"Ronda: {self._current_round} | "
             f"Gen: {self._current_gen}/{N_GEN} | "
             f"Ind: {self._current_idx + 1}/{POP_SIZE} ==="
         )
@@ -982,14 +1031,17 @@ class AGMotionEvaluator(Node):
             return (self._run_test1()[0], self._run_test2()[0],
                     self._run_test3()[0], self._run_test4()[0])
 
-        (c1, c2, c3, c4), rtf_mean, rtf_min, retries = self._gated(_battery)
+        # Si _gated lanza RTFExhausted, _current_idx NO se incrementa (CHANGELOG #7).
+        (c1, c2, c3, c4), rtf_mean, rtf_min, retries = self._gated(
+            _battery, max_attempts=max_attempts)
         fitness = W1*c1 + W2*c2 + W3*c3 + W4*c4
 
         ilog = IndividualLog(
             gen=self._current_gen, idx=self._current_idx,
             kp=kp, ki=ki, kd=kd,
             cost_p1=c1, cost_p2=c2, cost_p3=c3, cost_p4=c4, fitness=fitness,
-            rtf_mean=rtf_mean, rtf_min=rtf_min, retries=retries)
+            rtf_mean=rtf_mean, rtf_min=rtf_min, retries=retries,
+            round=self._current_round)
         self._all_individuals.append(ilog)
         self._current_idx += 1
 
@@ -1010,7 +1062,7 @@ class AGMotionEvaluator(Node):
             _, s3 = self._run_test3(record=True)
             _, s4 = self._run_test4(record=True)
             return s1, s2, s3, s4
-        (segs1, segs2, segs3, segs4), *_ = self._gated(_battery)
+        (segs1, segs2, segs3, segs4), *_ = self._gated(_battery)   # sin límite de intentos
         return segs1, segs2, segs3, segs4
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1048,7 +1100,7 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3, segs4,
         ax1.plot(gens, mean_fit, "b-s", ms=5, lw=1.8, label="media")
         ax1.plot(gens, max_fit,  "r-^", ms=5, lw=1.8, label="max")
         ax1.fill_between(gens, min_fit, max_fit, alpha=0.12, color="blue")
-        ax1.set_title("Evolución del fitness"); ax1.set_xlabel("Generación")
+        ax1.set_title("Evolución del fitness"); ax1.set_xlabel("Generación (acumulada entre rondas)")
         ax1.set_ylabel("Fitness"); ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
 
         ax2 = fig.add_subplot(gs[0, 1])
@@ -1229,7 +1281,7 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3, segs4,
                        marker=dict(color=all_fit, colorscale="Viridis_r", size=8,
                                    showscale=True,
                                    colorbar=dict(title="Fitness", x=1.02)),
-                       text=[f"gen={i.gen} fit={i.fitness:.4f}" for i in all_inds],
+                       text=[f"ronda={i.round} gen={i.gen} fit={i.fitness:.4f}" for i in all_inds],
                        hoverinfo="text+x+y", name="individuos"),
             row=3, col=2)
         fig.add_trace(
@@ -1323,17 +1375,137 @@ def _make_gen_callback(node: AGMotionEvaluator):
     def _cb(pop, gen, **kwargs):
         fits = [ind.fitness.values[0] for ind in pop]
         best = min(pop, key=lambda i: i.fitness.values[0])
+        # gen global = generaciones de rondas previas + gen local (CHANGELOG #8)
         glog = GenLog(
-            gen=gen,
+            gen=node._gen_offset + gen,
             min_fit=min(fits), mean_fit=sum(fits)/len(fits), max_fit=max(fits),
-            best_kp=best[0], best_ki=best[1], best_kd=best[2])
+            best_kp=best[0], best_ki=best[1], best_kd=best[2],
+            round=node._current_round)
         node._gen_logs.append(glog)
         node._current_gen = gen + 1
         node._current_idx = 0
         node.get_logger().info(
-            f"[GEN {gen}] min={glog.min_fit:.5f} mean={glog.mean_fit:.5f} "
+            f"[RONDA {node._current_round} | GEN {gen}] min={glog.min_fit:.5f} "
+            f"mean={glog.mean_fit:.5f} "
             f"best=[{best[0]:.3f},{best[1]:.3f},{best[2]:.3f}]")
     return _cb
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHANGELOG #7 / #8 — descarte por RTF y rondas con semilla
+# ══════════════════════════════════════════════════════════════════════════════
+def _random_individual(toolbox):
+    ind = toolbox.individual()
+    for i in range(3):
+        ind[i] = round(ind[i], GAIN_DECIMALS)
+    return ind
+
+
+def _evaluate_slot(ind, toolbox, node: AGMotionEvaluator):
+    """Evalúa `ind`. Si agota los intentos por RTF, lo reemplaza IN SITU por un
+    controlador aleatorio nuevo y vuelve a evaluar. El contador de individuo
+    (_current_idx) solo avanza en evaluaciones válidas, así que el descarte no
+    consume un número de individuo."""
+    consecutive = 0
+    while True:
+        try:
+            ind.fitness.values = toolbox.evaluate(ind)
+            return
+        except RTFExhausted as e:
+            consecutive += 1
+            node._discarded.append({
+                "round": node._current_round, "gen": node._current_gen,
+                "slot": node._current_idx,
+                "kp": ind[0], "ki": ind[1], "kd": ind[2], "reason": str(e)})
+            node.get_logger().warn(
+                f"[RTF] Controlador descartado (Kp={ind[0]:.3f} Ki={ind[1]:.3f} "
+                f"Kd={ind[2]:.3f}) tras {RTF_MAX_RETRIES} intentos — "
+                f"se pasa al siguiente controlador en el mismo hueco "
+                f"(Ind {node._current_idx + 1}/{POP_SIZE}).")
+            if consecutive >= MAX_CONSECUTIVE_DISCARDS:
+                raise RuntimeError(
+                    f"{consecutive} controladores consecutivos descartados por RTF "
+                    f"< {RTF_MIN}: Gazebo está sobrecargado, abortando.")
+            ind[:] = _random_individual(toolbox)
+
+
+def _run_round(node, toolbox, gen_cb, seed, round_idx, check_gen1):
+    """Una ronda completa del AG (población inicial con `seed` incluida).
+
+    check_gen1=True: tras la 1a generación se exige una mejora >=
+    MIN_IMPROVEMENT_GEN1 respecto al fitness de la semilla; si no se cumple la
+    ronda se corta y devuelve stopped_early=True.
+
+    Devuelve (mejor_individuo_de_la_ronda, stopped_early, generaciones_corridas).
+    """
+    node._current_round = round_idx
+    node._current_gen   = 0
+    node._current_idx   = 0
+    hof = tools.HallOfFame(5)
+
+    seed_r = [round(float(v), GAIN_DECIMALS) for v in seed]
+    node.get_logger().info(
+        f"########## RONDA {round_idx} — semilla Kp={seed_r[0]:.3f} "
+        f"Ki={seed_r[1]:.3f} Kd={seed_r[2]:.3f} ##########")
+
+    pop = toolbox.population(n=POP_SIZE)
+    for ind in pop:
+        for i in range(3):
+            ind[i] = round(ind[i], GAIN_DECIMALS)
+    pop[0][:] = seed_r                       # la semilla ocupa el individuo 1
+
+    _evaluate_slot(pop[0], toolbox, node)    # se evalúa primero
+    seed_fit = (pop[0].fitness.values[0]
+                if [round(v, GAIN_DECIMALS) for v in pop[0]] == seed_r else None)
+    for ind in pop[1:]:
+        _evaluate_slot(ind, toolbox, node)
+    hof.update(pop)
+
+    if seed_fit is None:   # la semilla fue descartada por RTF: referencia alternativa
+        seed_fit = min(ind.fitness.values[0] for ind in pop)
+        node.get_logger().warn(
+            "La semilla fue descartada por RTF; la referencia del 10 % será "
+            "el mejor fitness de la población inicial.")
+    node.get_logger().info(f"[RONDA {round_idx}] fitness de referencia (semilla) = {seed_fit:.5f}")
+
+    stopped_early, improvement, gens_run = False, None, 0
+    for gen in range(N_GEN):
+        node._current_gen = gen + 1
+        node._current_idx = 0
+
+        offspring = algorithms.varAnd(pop, toolbox, CX_PROB, MUT_PROB)
+        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+        for ind in invalid_ind:
+            _evaluate_slot(ind, toolbox, node)
+
+        # CHANGELOG #3 — elitismo
+        n_elite = len(hof)
+        elites  = [toolbox.clone(ind) for ind in hof]
+        pop[:]  = toolbox.select(offspring, len(pop) - n_elite) + elites
+
+        hof.update(pop)
+        gen_cb(pop, gen)
+        gens_run += 1
+
+        if check_gen1 and gen == 0:
+            best_fit = hof[0].fitness.values[0]
+            improvement = (seed_fit - best_fit) / seed_fit if seed_fit > 0 else 0.0
+            node.get_logger().info(
+                f"[RONDA {round_idx}] mejora tras la 1a generación: "
+                f"{improvement*100:.2f} % (mínimo exigido "
+                f"{MIN_IMPROVEMENT_GEN1*100:.0f} %)")
+            if improvement < MIN_IMPROVEMENT_GEN1:
+                stopped_early = True
+                break
+
+    best = toolbox.clone(hof[0])
+    node._round_logs.append({
+        "round": round_idx, "seed": seed_r, "seed_fitness": seed_fit,
+        "best": {"kp": best[0], "ki": best[1], "kd": best[2],
+                 "fitness": best.fitness.values[0]},
+        "improvement_gen1": improvement, "stopped_early": stopped_early,
+        "generations_run": gens_run})
+    return best, stopped_early, gens_run
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1360,7 +1532,8 @@ def main(args=None):
         toolbox.register("individual", tools.initCycle, creator.Individual,
                          (toolbox.kp, toolbox.ki, toolbox.kd), n=1)
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-        toolbox.register("evaluate", node.evaluate)
+        # CHANGELOG #7 — durante la evolución, límite de intentos por RTF
+        toolbox.register("evaluate", node.evaluate, max_attempts=RTF_MAX_RETRIES)
         toolbox.register("mate",     tools.cxBlend, alpha=0.5)
         # CHANGELOG #5 — sigma por parámetro en vez de un valor fijo único,
         # escalado aproximadamente al 7-8% del rango de cada gen (antes,
@@ -1371,56 +1544,41 @@ def main(args=None):
         toolbox.decorate("mate",   _bounded)
         toolbox.decorate("mutate", _bounded)
 
-        stats = tools.Statistics(lambda ind: ind.fitness.values[0])
-        stats.register("min",  min)
-        stats.register("mean", lambda x: sum(x)/len(x))
-        stats.register("max",  max)
-        hof = tools.HallOfFame(5)
-
         gen_cb = _make_gen_callback(node)
-        node.get_logger().info(f"Iniciando AG — pop={POP_SIZE}  gen={N_GEN}")
+        node.get_logger().info(
+            f"Iniciando AG — pop={POP_SIZE}  gen={N_GEN}  "
+            f"semilla inicial={SEED_INICIAL}  RTF_MAX_RETRIES={RTF_MAX_RETRIES}")
 
-        # Evaluación inicial
-        node._current_gen = 0
-        node._current_idx = 0
-        pop = toolbox.population(n=POP_SIZE)
-        for ind in pop:
-            for i in range(3):
-                ind[i] = round(ind[i], GAIN_DECIMALS)
-            ind.fitness.values = toolbox.evaluate(ind)
-        hof.update(pop)
+        # ── CHANGELOG #8 — rondas con semilla ────────────────────────────────
+        seed = list(SEED_INICIAL)
+        global_best = None
+        for rnd in range(1, MAX_ROUNDS + 1):
+            best_r, stopped, gens_run = _run_round(
+                node, toolbox, gen_cb, seed, rnd, check_gen1=(rnd > 1))
+            node._gen_offset += gens_run
 
-        # Bucle evolutivo
-        for gen in range(N_GEN):
-            # --- FIX: Sincronizar contadores para la consola ---
-            node._current_gen = gen + 1
-            node._current_idx = 0 
-            # ---------------------------------------------------
+            if (global_best is None or
+                    best_r.fitness.values[0] < global_best.fitness.values[0]):
+                global_best = best_r
 
-            offspring = algorithms.varAnd(pop, toolbox, CX_PROB, MUT_PROB)
-            
-            # Extraemos SOLO los que perdieron su fitness (por cruza o mutación)
-            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            for ind in invalid_ind:
-                ind.fitness.values = toolbox.evaluate(ind)
+            node.get_logger().info(
+                f"[RONDA {rnd}] terminada — mejor de la ronda "
+                f"{best_r.fitness.values[0]:.5f} | mejor global "
+                f"{global_best.fitness.values[0]:.5f} "
+                f"[{global_best[0]:.3f},{global_best[1]:.3f},{global_best[2]:.3f}]")
 
-            # CHANGELOG #3 — ELITISMO: se reservan len(hof) espacios en la
-            # nueva población para los mejores individuos históricos, en vez
-            # de seleccionar únicamente sobre `offspring`. Un análisis de una
-            # corrida de 50x100 sin este fix mostró DOS regresiones del
-            # mínimo histórico (el mejor individuo se perdía de la
-            # población al no ganar el torneo) y 28 de 50 generaciones sin
-            # ninguna mejora. clone() evita que los individuos del HOF y los
-            # de `pop` compartan el mismo objeto (lo que rompería mate/mutate
-            # en la siguiente generación por aliasing).
-            n_elite = len(hof)
-            elites  = [toolbox.clone(ind) for ind in hof]
-            pop[:]  = toolbox.select(offspring, len(pop) - n_elite) + elites
+            if stopped:
+                node.get_logger().info(
+                    "La 1a generación no mejoró lo suficiente: se conserva el "
+                    "mejor controlador global y termina la prueba.")
+                break
+            seed = [global_best[0], global_best[1], global_best[2]]
+        else:
+            node.get_logger().warn(
+                f"Se alcanzó MAX_ROUNDS={MAX_ROUNDS} sin corte por mejora < "
+                f"{MIN_IMPROVEMENT_GEN1*100:.0f} %.")
 
-            hof.update(pop)
-            gen_cb(pop, gen)
-
-        best = hof[0]
+        best = global_best
         best_kp, best_ki, best_kd = best[0], best[1], best[2]
         node.get_logger().info("=" * 54)
         node.get_logger().info("MEJOR INDIVIDUO:")
@@ -1428,6 +1586,7 @@ def main(args=None):
         node.get_logger().info(f"  Ki = {best_ki:.6f}")
         node.get_logger().info(f"  Kd = {best_kd:.6f}")
         node.get_logger().info(f"  Fitness = {best.fitness.values[0]:.6f}")
+        node.get_logger().info(f"  Controladores descartados por RTF: {len(node._discarded)}")
         node.get_logger().info("=" * 54)
 
         node.get_logger().info("Grabando corrida final del mejor individuo...")
@@ -1450,13 +1609,17 @@ def main(args=None):
                 "weights": {"P1": W1, "P2": W2, "P3": W3, "P4": W4},
                 "kp_range": KP_RANGE, "ki_range": KI_RANGE, "kd_range": KD_RANGE,
                 "mut_sigma": MUT_SIGMA, "elitism": True,
-                #"note": "P2 (lateral) retirada por limitacion fisica de mallas "
-                #        "mecanum; sustituida por rotacion pura.",
+                "seed_inicial": SEED_INICIAL,
+                "min_improvement_gen1": MIN_IMPROVEMENT_GEN1,
+                "max_rounds": MAX_ROUNDS,
+                "rtf_min": RTF_MIN, "rtf_max_retries": RTF_MAX_RETRIES,
             },
             "best": {"kp": best_kp, "ki": best_ki, "kd": best_kd,
                      "fitness": best.fitness.values[0]},
+            "rounds": node._round_logs,
+            "discarded_rtf": node._discarded,
             "generations": [
-                {"gen": g.gen, "min": g.min_fit, "mean": g.mean_fit,
+                {"round": g.round, "gen": g.gen, "min": g.min_fit, "mean": g.mean_fit,
                  "max": g.max_fit, "best_kp": g.best_kp,
                  "best_ki": g.best_ki, "best_kd": g.best_kd}
                 for g in node._gen_logs],
