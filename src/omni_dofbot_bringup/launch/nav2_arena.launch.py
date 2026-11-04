@@ -49,7 +49,7 @@ def generate_launch_description():
             executable='amcl',
             name='amcl',
             parameters=[params_file, {'use_sim_time': True}],
-                    output='screen'
+            output='screen'
         ),
 
         # 3. El Administrador de Vida

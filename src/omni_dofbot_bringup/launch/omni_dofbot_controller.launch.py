@@ -26,7 +26,8 @@ def generate_launch_description():
     world = os.path.join(
         get_package_share_directory('omni_dofbot_bringup'),
         'world', 
-        'arena_pid_tuning.world'  
+        # 'arena_pid_tuning.world'  
+        'arena_world.world'
     )
 
     workspace_install_dir = os.path.abspath(os.path.join(pkg_omni_desc, '..'))
@@ -65,8 +66,9 @@ def generate_launch_description():
         arguments=[
             '-topic', 'robot_description',
             '-name', 'omni_dofbot',
-            '-z', '0.1',
-            '-Y','1.570796'
+            '-y', '-0.91',
+            '-z', '0.1', # Inicia en Z porque las ruedas se atoran.
+            '-Y','1.570796' # Desplazamiento
         ],
         output='screen'
     )
