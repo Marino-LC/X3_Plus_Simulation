@@ -34,7 +34,7 @@
         <child link="laser_link"/>
     </joint>
 
-  <gazebo reference="laser_link">
+  <!--<gazebo reference="laser_link">
     <sensor type="gpu_lidar" name="lidar">
       <pose>0 0 0 0 0 0</pose>
       <visualize>$(arg laser_visual)</visualize>
@@ -68,6 +68,6 @@
         </noise>
       </lidar>
     </sensor>
-  </gazebo>
+  </gazebo>-->
 
 </robot>

@@ -144,7 +144,7 @@ WZ_REF = 1.00   # rad/s
 
 # ── Lazo de control ───────────────────────────────────────────────────────────
 RTF_MIN = 0.90
-RTF_MAX_RETRIES = none
+RTF_MAX_RETRIES = None
 CTRL_DT      = 0.05   # s  (20 Hz)
 SETTLE_TIME  = 0.30   # s  pausa entre segmentos
 TIMEOUT_MOVE = 8     # s  timeout traslación
@@ -943,6 +943,9 @@ class AGMotionEvaluator(Node):
 
     # ── Reintentos si la metrica es invalida ────────────────────────────────────────────────────────────
     def _gated(self, run_fn):
+        """Ejecuta prueba reintentando si el Real-Time Factor (RTF) no alcanza el mínimo requerido.
+        Realiza hasta RTF_MAX_RETRIES intentos evaluando el rendimiento (mean) en cada iteración.
+        Si la métrica es válida (mean >= RTF_MIN), retorna los resultados y el número de reintentos acumulados."""
         attempt = 0
         while True:
             attempt += 1
@@ -955,7 +958,7 @@ class AGMotionEvaluator(Node):
             self.get_logger().warn(
                 f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
                 f"evaluación descartada, reintento {attempt}")
-            if RTF_MAX_RETRIES is not None and attempt >= RTF_MAX_RETRIES
+            if RTF_MAX_RETRIES is not None and attempt >= RTF_MAX_RETRIES:
                 raise RuntimeError("RTF insuficiente tras reintentos")
             time.sleep(2.0)
 

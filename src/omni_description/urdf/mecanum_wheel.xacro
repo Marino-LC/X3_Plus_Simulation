@@ -37,12 +37,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 -0.018536" rpy="-1.9721522630525295e-31 -2.3353329992581426e-61 -1.1841545112969503e-30"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/DERECHA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_joint" type="continuous">
@@ -69,12 +69,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/DERECHA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_plate_2_joint" type="fixed">
@@ -401,12 +401,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 -0.018536" rpy="0.0 -0.0 0.0"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/IZQUIERDA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_joint" type="continuous">
@@ -433,12 +433,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/IZQUIERDA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_plate_2_joint" type="fixed">
