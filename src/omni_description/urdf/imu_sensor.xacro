@@ -10,11 +10,7 @@
         <origin xyz="${imu_joint_xyz}" rpy="${imu_joint_rpy}"/>
     </joint>
 
-<<<<<<< HEAD
     <gazebo reference="imu_link">
-=======
-    <!--<gazebo reference="imu_link">
->>>>>>> 8f870f649ab9bf800602997be22a797ddc8de1e2
         <sensor name="imu" type="imu">
             <always_on>true</always_on>
             <update_rate>30</update_rate>
@@ -75,10 +71,6 @@
                 </linear_acceleration>
             </imu>
         </sensor>
-<<<<<<< HEAD
     </gazebo>
-=======
-    </gazebo>-->
->>>>>>> 8f870f649ab9bf800602997be22a797ddc8de1e2
 
 </robot>
