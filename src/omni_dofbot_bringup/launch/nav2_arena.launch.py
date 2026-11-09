@@ -12,7 +12,7 @@ def generate_launch_description():
     # Se agregaron los nodos de navegación faltantes a la lista de nodos de ciclo de vida.
     lifecycle_nodes = [
                         'map_server',
-                        'amcl', 
+    #                   'amcl', 
                         'planner_server',
                         'controller_server', 
                         'smoother_server',
@@ -24,6 +24,15 @@ def generate_launch_description():
                     ]
 
     return LaunchDescription([
+
+        # # 1. Transformación estática (Reemplazo de AMCL)
+        # Node(
+        #     package='tf2_ros',
+        #     executable='static_transform_publisher',
+        #     arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
+        #     output='screen'
+        # ),
+
 
         # 1. Servidor de Mapas ('map_server')
         # Este nodo se encarga de cargar y servir el mapa del entorno al resto de 
