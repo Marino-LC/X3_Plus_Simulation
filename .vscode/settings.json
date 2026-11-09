@@ -1,0 +1,25 @@
+{
+    "ROS2.distro": "jazzy",
+    "python.autoComplete.extraPaths": [
+        "/home/arrgusr/ROS2Dev/X3_Plus_Simulation/install/omni_dofbot_bringup/lib/python3.12/site-packages",
+        "/home/arrgusr/ROS2Dev/X3_Plus_Simulation/install/omni_bringup/lib/python3.12/site-packages",
+        "/home/arrgusr/ROS2Dev/X3_Plus_Simulation/install/dofbot_bringup/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/opt/gz_sim_vendor/lib/python",
+        "/opt/ros/jazzy/opt/sdformat_vendor/lib/python",
+        "/opt/ros/jazzy/opt/gz_transport_vendor/lib/python",
+        "/opt/ros/jazzy/opt/gz_msgs_vendor/lib/python",
+        "/opt/ros/jazzy/opt/gz_math_vendor/lib/python",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/arrgusr/ROS2Dev/X3_Plus_Simulation/install/omni_dofbot_bringup/lib/python3.12/site-packages",
+        "/home/arrgusr/ROS2Dev/X3_Plus_Simulation/install/omni_bringup/lib/python3.12/site-packages",
+        "/home/arrgusr/ROS2Dev/X3_Plus_Simulation/install/dofbot_bringup/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/opt/gz_sim_vendor/lib/python",
+        "/opt/ros/jazzy/opt/sdformat_vendor/lib/python",
+        "/opt/ros/jazzy/opt/gz_transport_vendor/lib/python",
+        "/opt/ros/jazzy/opt/gz_msgs_vendor/lib/python",
+        "/opt/ros/jazzy/opt/gz_math_vendor/lib/python",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
+}

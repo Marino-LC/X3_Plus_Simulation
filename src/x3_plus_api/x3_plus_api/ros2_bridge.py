@@ -114,4 +114,5 @@ class ROS2Bridge(Node):
                 "Sync_States": list(self.state_sequence),
                 "total_frames": len(self.image_sequence)
             }
-        return payload  
+        return payload 
+    
