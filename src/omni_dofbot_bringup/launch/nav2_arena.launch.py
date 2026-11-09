@@ -8,17 +8,28 @@ def generate_launch_description():
     map_file = os.path.join(pkg_dir, 'maps', 'arena_map.yaml')
     params_file = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
 
-    # Añadimos behavior_server a la lista oficial
-    lifecycle_nodes = ['map_server', 'planner_server', 'controller_server', 'behavior_server', 'bt_navigator']
+    # Añadimos behavior_server a la lista oficial.
+    # Se agregaron los nodos de navegación faltantes a la lista de nodos de ciclo de vida.
+    lifecycle_nodes = [
+                        'map_server',
+                        'amcl', 
+                        'planner_server',
+                        'controller_server', 
+                        'smoother_server',
+                        'behavior_server', 
+                        'bt_navigator', 
+                        'waypoint_follower',
+                        'velocity_smoother', 
+                        'collision_monitor'
+                    ]
+
     return LaunchDescription([
-        # 1. Transformación estática (Reemplazo de AMCL)
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
-            output='screen'
-        ),
-        # 2. Servidor de Mapas
+
+        # 1. Servidor de Mapas ('map_server')
+        # Este nodo se encarga de cargar y servir el mapa del entorno al resto de 
+        # nodos de navegación. Recibe un archivo .yaml que describe el mapa y lo
+        # convierte para que otros nodos accedan a él.
+
         Node(
             package='nav2_map_server',
             executable='map_server',
@@ -27,7 +38,24 @@ def generate_launch_description():
             parameters=[params_file, {'yaml_filename': map_file, 'use_sim_time': True}],
             output='screen'
         ),
-        # 3. Planificador Global
+
+        # 2. Implementación de nodo ACML (Adaptive Monte Carlo Localization)
+        # Este nodo se encarga de localizar el robot en el mapa utilizando un algoritmo 
+        # de muestreo adaptativo. Recibe datos del sensor y actualiza la estimación de 
+        # la posición del robot.
+
+        Node(
+            package='nav2_amcl',
+            executable='amcl',
+            name='amcl',
+            parameters=[params_file, {'yaml_filename': map_file, 'use_sim_time': True}],
+                    output='screen'
+                ),
+
+        # 3. Planificador Global (planner_server)
+        # Este nodo se encarga de la generación de rutas globales desde la posición
+        # actual del robot hacia otra posición objetivo dentro del mapa. 
+
         Node(
             package='nav2_planner',
             executable='planner_server',
@@ -35,7 +63,11 @@ def generate_launch_description():
             parameters=[params_file],
             output='screen'
         ),
-        # 4. Controlador Local (PID/Seguimiento)
+
+        # 4. Controlador Local (PID/Seguimiento - controller_server) 
+        # Este nodo se encarga de generar los comandos de velocidad para el robot
+        # en base a la ruta generada por el planificador global y la posición actual.
+
         Node(
             package='nav2_controller',
             executable='controller_server',
@@ -43,7 +75,11 @@ def generate_launch_description():
             parameters=[params_file],
             output='screen'
         ),
-        # --- EL NUEVO NODO (Satisfaciendo a bt_navigator) ---
+
+        # 5. Comportamientos (behavior_server)
+        # Este nodo se encarga de ejecutar comportamientos predefinidos, como
+        # seguir una ruta, evitar obstáculos, etc.
+
         Node(
             package='nav2_behaviors',
             executable='behavior_server',
@@ -51,7 +87,11 @@ def generate_launch_description():
             parameters=[params_file],
             output='screen'
         ),
-        # 5. Behavior Tree (Orquestador de acciones)
+
+        # 6. Navegador de Árbol de Comportamiento (bt_navigator)
+        # Este nodo se encarga de ejecutar un árbol de comportamiento con el fin de
+        #definir la lógica de navegación del robot.
+
         Node(
             package='nav2_bt_navigator',
             executable='bt_navigator',
@@ -59,7 +99,44 @@ def generate_launch_description():
             parameters=[params_file],
             output='screen'
         ),
-        # 6. El Administrador de Vida (Enciende todos los anteriores al mismo tiempo)
+
+        #7. Seguidor de puntos de ruta (waypoint_follower)
+        # Este nodo se encarga de seguir una serie de puntos de ruta predefinidos
+        
+        Node(
+            package='nav2_waypoint_follower',
+            executable='waypoint_follower',
+            name='waypoint_follower',
+            parameters=[params_file],
+            output='screen'
+        ),
+
+        # 8. Suavizador de velocidad (velocity_smoother)
+        # Este nodo se encarga de suavizar los comandos de velocidad generados por el
+        # controlador local para evitar movimientos bruscos del robot.
+
+        Node(
+            package='nav2_velocity_smoother',
+            executable='velocity_smoother',
+            name='velocity_smoother',
+            parameters=[params_file],
+            output='screen'
+        ),
+
+        # 9. Monitor de colisiones (collision_monitor)
+        # Este nodo se encarga de monitorear la distancia a los obstáculos y generar
+        # alertas si el robot se acerca demasiado a ellos.
+
+        Node(
+            package='nav2_collision_monitor',
+            executable='collision_monitor',
+            name='collision_monitor',
+            parameters=[params_file],
+            output='screen'
+        ),
+
+        # 10. El Administrador de Vida
+        # Este nodo se encarga de encender todos los nodos anteriores al mismo tiempo
         Node(
             package='nav2_lifecycle_manager',
             executable='lifecycle_manager',
@@ -67,7 +144,12 @@ def generate_launch_description():
             parameters=[{'use_sim_time': True, 'autostart': True, 'node_names': lifecycle_nodes, 'bond_timeout':10.0}],
             output='screen'
         ),
-        # 7. Relacionar base_link con base_footprint
+
+        # 11. Relacionar base_link con base_footprint
+        # Este nodo se encarga de publicar una transformación estática entre los marcos
+        # de referencia 'base_link' y 'base_footprint'. Esto es útil para mantener 
+        # la coherencia entre los diferentes marcos de referencia del robot.
+
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
