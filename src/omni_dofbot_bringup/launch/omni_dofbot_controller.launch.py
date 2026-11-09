@@ -26,7 +26,7 @@ def generate_launch_description():
     world = os.path.join(
         get_package_share_directory('omni_dofbot_bringup'),
         'world', 
-        'arena_pid_tuning.world'  
+        'arena_world.world'  
     )
 
     workspace_install_dir = os.path.abspath(os.path.join(pkg_omni_desc, '..'))
@@ -65,7 +65,7 @@ def generate_launch_description():
         arguments=[
             '-topic', 'robot_description',
             '-name', 'omni_dofbot',
-            '-z', '0.1',
+            '-x', '0.0', '-y', '-0.91', '-z', '0.1',
             '-Y','1.570796'
         ],
         output='screen'
@@ -160,12 +160,12 @@ def generate_launch_description():
     config_arg = DeclareLaunchArgument(
         name='rvizconfig', default_value=rviz_config_path
     )
-    # rviz2_node = Node(
-    #     package='rviz2',
-    #     executable='rviz2',
-    #     arguments=['-d', rviz_config_path],
-    #     parameters=[{'use_sim_time': True}]
-    # )
+    rviz2_node = Node(
+        package='rviz2',
+        executable='rviz2',
+        arguments=['-d', rviz_config_path],
+        parameters=[{'use_sim_time': True}]
+    )
 
     return LaunchDescription([
         set_gz_model_path,
@@ -174,7 +174,7 @@ def generate_launch_description():
         gazebo,
         spawn_entity,
         clock_bridge,
-        #rviz2_node,
+        rviz2_node,
 
         # 1. Cargar ruedas en INACTIVE (no dispara switch, no falla)
         RegisterEventHandler(
