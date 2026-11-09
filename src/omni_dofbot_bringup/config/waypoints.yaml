@@ -117,8 +117,8 @@ cube_positions:
 
 
 arena:
-  width:  1.22
-  length: 2.42
-  floor_friction: 0.4
+  width:  2.7
+  length: 2.7
+  floor_friction: 0.45
   world_name: "arena_world"
   robot_name: "omni_dofbot"
