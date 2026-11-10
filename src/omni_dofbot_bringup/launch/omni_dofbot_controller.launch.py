@@ -177,7 +177,7 @@ def generate_launch_description():
         gazebo,
         spawn_entity,
         clock_bridge,
-        rviz2_node,
+        #rviz2_node,
 
         # 1. Cargar ruedas en INACTIVE (no dispara switch, no falla)
         RegisterEventHandler(

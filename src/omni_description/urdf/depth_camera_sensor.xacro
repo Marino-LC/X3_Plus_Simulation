@@ -22,7 +22,7 @@
         <child link="camera_optical_link"/>
     </joint>
 
-    <gazebo reference="camera_link">
+    <!-- <gazebo reference="camera_link">
         <sensor name="camera_sensor" type="depth">
             <pose>0 0 0 0 0 0</pose>
             <visualize>true</visualize>
@@ -40,7 +40,7 @@
                 <frame_name>camera_optical_link</frame_name>
             </plugin>
         </sensor>
-    </gazebo>
+    </gazebo> -->
 
 
 </robot>
