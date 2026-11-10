@@ -12,7 +12,7 @@ def generate_launch_description():
     # Se agregaron los nodos de navegación faltantes a la lista de nodos de ciclo de vida.
     lifecycle_nodes = [
                         'map_server',
-    #                   'amcl', 
+                        'amcl', 
                         'planner_server',
                         'controller_server', 
                         'smoother_server',
