@@ -66,9 +66,8 @@ def generate_launch_description():
         arguments=[
             '-topic', 'robot_description',
             '-name', 'omni_dofbot',
-            '-y', '-0.91',
-            '-z', '0.1', # Inicia en Z porque las ruedas se atoran.
-            '-Y','1.570796' # Desplazamiento
+            '-x', '0.0', '-y', '-0.91', '-z', '0.1',
+            '-Y','1.570796'
         ],
         output='screen'
     )
@@ -162,7 +161,6 @@ def generate_launch_description():
     config_arg = DeclareLaunchArgument(
         name='rvizconfig', default_value=rviz_config_path
     )
-
     rviz2_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -177,7 +175,7 @@ def generate_launch_description():
         gazebo,
         spawn_entity,
         clock_bridge,
-        #rviz2_node,
+        rviz2_node,
 
         # 1. Cargar ruedas en INACTIVE (no dispara switch, no falla)
         RegisterEventHandler(

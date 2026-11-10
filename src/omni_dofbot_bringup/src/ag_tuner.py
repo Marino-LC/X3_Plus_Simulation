@@ -22,77 +22,60 @@ EJECUCIÓN:
 """
 
 import os
+import json
 import math
 import time
-import random
 import threading
 import subprocess
-import yaml
 
+import yaml
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.parameter import Parameter as RclpyParameter
+from rclpy.time import Time
 from ament_index_python.packages import get_package_share_directory
 
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
-from geometry_msgs.msg import PoseStamped
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseStamped, Twist, Pose, Point, Quaternion
 from nav_msgs.msg import Odometry
 from action_msgs.msg import GoalStatus
+from std_srvs.srv import Empty
 
 from nav2_msgs.action import NavigateThroughPoses
-
-from deap import base, creator, tools, algorithms
-
 from ros_gz_interfaces.srv import SetEntityPose
 from ros_gz_interfaces.msg import Entity
-from geometry_msgs.msg import Pose, Point, Quaternion
-from geometry_msgs.msg import PoseWithCovarianceStamped
 
-# ── Configuración del AG ───────────────────────────────────────────────────────
-POP_SIZE    = 20      # individuos por generación
-N_GEN       = 5       # generaciones (aumentar para tesis final)
-CX_PROB     = 0.5     # probabilidad de cruce
-MUT_PROB    = 0.2     # probabilidad de mutación
-KP_RANGE    = (0.0, 10.0)
-KI_RANGE    = (0.0, 5.0)
-KD_RANGE    = (0.0, 3.0)
-PENALTY     = 300.0   # costo si Nav2 falla o hay colisión
+# ── Configuración ───────────────────────────────────────────────────────
 WORLD_NAME  = "arena_world"
 ROBOT_NAME  = "omni_dofbot"
+NAV_TIMEOUT = 120.0      # s (pared) máximo por corrida
+# mecanum_odometry_node se reinicia a yaw=pi/2 (RESET_YAW); el teleport debe
+# usar el mismo yaw para que odom y Gazebo coincidan.
+SPAWN_YAW = math.pi / 2.0
+OUT_JSON = "/tmp/waypoint_run_results.json"
 
-# Ruta al yaml de waypoints — instalada junto con el paquete
-WAYPOINTS_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    '..', '..', '..', 'share', 'omni_dofbot_bringup', 'config', 'waypoints.yaml'
-)
-
-
-# ── Definición DEAP (fuera de main para que creator no se llame dos veces) ────
-creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-creator.create("Individual", list, fitness=creator.FitnessMin)
-
-
-class AGArenaEvaluator(Node):
-    """
-    Nodo ROS 2 que actúa como entorno de evaluación para el AG.
-    Corre en un MultiThreadedExecutor en un hilo separado para que
-    los futuros de ROS 2 no bloqueen el hilo del AG (DEAP).
-    """
-
+class WaypointRunner(Node):
     def __init__(self):
-        super().__init__('ag_arena_evaluator')
-        #Nuevo
-        self._initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
-
-        # Callback group reentrant: permite llamadas concurrentes al mismo nodo
+        super().__init__(
+            "waypoint_runner",
+            parameter_overrides=[
+                RclpyParameter("use_sim_time", RclpyParameter.Type.BOOL, True)])
         self._cbg = ReentrantCallbackGroup()
-
-        # ── Clientes de servicio y acción ─────────────────────────────────────
+ 
+        # ── Parámetros ────────────────────────────────────────────────────────
+        self.declare_parameter("runs", 1)
+        self.declare_parameter("set_gains", False)   # si False, no toca el PID
+        self.declare_parameter("kp", 1.949)
+        self.declare_parameter("ki", 0.256)
+        self.declare_parameter("kd", 0.938)
+        self.declare_parameter("reset_between_runs", True)
+ 
+        # ── Clientes ──────────────────────────────────────────────────────────
         self._pid_client = self.create_client(
             SetParameters,
             '/mecanum_kinematic_node/set_parameters',
@@ -104,404 +87,693 @@ class AGArenaEvaluator(Node):
             'navigate_through_poses',
             callback_group=self._cbg
         )
-        self._set_pose_client = self.create_client(
+        self._tp_client = self.create_client(
             SetEntityPose,
             '/world/arena_world/set_entity_pose',
             callback_group=self._cbg
         )
+        self._reset_odom_cli = self.create_client(
+            Empty,
+            "/mecanum_odometry_node/reset_pose",
+            callback_group=self._cbg)
+        self._reset_ctrl_cli = self.create_client(
+            Empty,
+            "/mecanum_kinematic_node/reset_controller_state",
+            callback_group=self._cbg)
         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        
-
-        # ── Suscripción a odometría para calcular ITAE ────────────────────────
-        self._odom_lock   = threading.Lock()
-        self._current_x   = 0.0
-        self._current_y   = 0.0
-        self._itae_accum  = 0.0
-        self._ref_x       = 0.0
-        self._ref_y       = 0.0
-        self._measuring   = False
-
+ 
+        # ── Odometría para ITAE / error final ─────────────────────────────────
+        self._odom_lock = threading.Lock()
+        self._x = 0.0
+        self._y = 0.0
+        self._measuring = False
+        self._ref_x = 0.0
+        self._ref_y = 0.0
+        self._t0 = 0.0
+        self._last_t = 0.0
+        self._itae = 0.0
         self.create_subscription(
-            Odometry, '/odom', self._odom_cb, 10,
-            callback_group=self._cbg
-        )
-
-        # ── Cargar waypoints ──────────────────────────────────────────────────
+            Odometry, "/odom", self._odom_cb, 10, callback_group=self._cbg)
+ 
         self._waypoints = self._load_waypoints()
         self.get_logger().info(
-            f'AG listo — {len(self._waypoints)} waypoints cargados'
-        )
-
-    # ── Odometría / ITAE ──────────────────────────────────────────────────────
-
-    def _odom_cb(self, msg: Odometry):
-        with self._odom_lock:
-            self._current_x = msg.pose.pose.position.x
-            self._current_y = msg.pose.pose.position.y
-            if self._measuring:
-                ex = self._ref_x - self._current_x
-                ey = self._ref_y - self._current_y
-                # ITAE: Integral of Absolute Error ponderado por tiempo
-                # Aquí usamos IAE simple; el tiempo lo lleva el caller
-                self._itae_accum += math.sqrt(ex**2 + ey**2) * 0.05  # dt≈50Hz
-
-    def _start_measuring(self, ref_x: float, ref_y: float):
-        with self._odom_lock:
-            self._ref_x      = ref_x
-            self._ref_y      = ref_y
-            self._itae_accum = 0.0
-            self._measuring  = True
-
-    def _stop_measuring(self) -> float:
-        with self._odom_lock:
-            self._measuring = False
-            return self._itae_accum
-
-    # ── Waypoints ─────────────────────────────────────────────────────────────
-
+            f"WaypointRunner listo — {len(self._waypoints)} waypoints cargados")
+ 
+    # ── Utilidades ────────────────────────────────────────────────────────────
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+ 
     def _load_waypoints(self) -> list:
-        # Obtener la ruta de instalación del paquete
-        package_share_dir = get_package_share_directory('omni_dofbot_bringup')
-    
-        # Construir la ruta absoluta correcta
-        path = os.path.join(package_share_dir, 'config', 'waypoints.yaml')
-        
+        share = get_package_share_directory("omni_dofbot_bringup")
+        path = os.path.join(share, "config", "waypoints.yaml")
         self.get_logger().info(f"Buscando waypoints en: {path}")
-        
         if not os.path.exists(path):
-            self.get_logger().error(f"¡Archivo no encontrado en {path}!")
+            self.get_logger().error(f"Archivo no encontrado: {path}")
             return []
-
-        with open(path, 'r') as f:
-            data = yaml.safe_load(f)
-        return data['waypoints']
-
+        with open(path, "r") as f:
+            return yaml.safe_load(f)["waypoints"]
+ 
     @staticmethod
     def _yaw_to_quat(yaw: float):
         return 0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0)
-
-    # ── Reset del robot ───────────────────────────────────────────────────────
-
-    def reset_robot(self):
-        """Teletransporta el robot a la posición de inicio (WP1)."""
-        # 1. FRENADO DE EMERGENCIA: Detener las ruedas antes del salto
-        stop_msg = Twist()
-        self._cmd_vel_pub.publish(stop_msg)
-        time.sleep(0.2) # Dar tiempo a que los motores se detengan
-
-        spawn = self._waypoints[0]
-        x = float(spawn['x'])
-        y = float(spawn['y'])
-        z_seguro = 0.05 # 15 cm: Caída libre segura para evitar clipping
-
-        # ── Método 1: servicio ROS 2 (preferido) ──────────────────────────────
-        if hasattr(self, '_set_pose_client'):
-            if self._set_pose_client.wait_for_service(timeout_sec=1.0):
-                req = SetEntityPose.Request()
-                req.entity.name = 'omni_dofbot'
-                req.entity.type = Entity.MODEL
-                
-                req.pose = Pose()
-                req.pose.position = Point(x=x, y=y, z=z_seguro) # Usar z_seguro
-                req.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
-
-                future = self._set_pose_client.call_async(req)
-                deadline = time.time() + 2.0
-                while not future.done() and time.time() < deadline:
-                    time.sleep(0.05)
-                
-                if future.done() and future.result() is not None:
-                    self.get_logger().info('Robot reseteado via ROS 2')
-                    time.sleep(1.0) # Tiempo para que caiga y se asiente
-                    return
-
-        # ── Método 2: gz service (fallback) ───────────────────────────────────
-        req_str = (
-            f'name: "omni_dofbot", '
-            f'position: {{x: {x}, y: {y}, z: {z_seguro}}}, '
-            f'orientation: {{x: 0.0, y: 0.0, z: 0.707171068, w: 0.7071068}}'
-        )
-
-        cmd = [
-            'gz', 'service', '-s', '/world/arena_world/set_pose',
-            '--reqtype', 'gz.msgs.Pose', '--reptype', 'gz.msgs.Boolean',
-            '--timeout', '2000', '--req', req_str
-        ]
-
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            self.get_logger().info('Robot reseteado via gz service')
-            time.sleep(1.0) # Tiempo para que caiga y se asiente
-        except subprocess.CalledProcessError as e:
-            self.get_logger().error(f'gz service falló: {e.stderr.decode()}')
-
-        spawn = self._waypoints[0]
-        self._publish_initial_pose(spawn['x'], spawn['y'], spawn['yaw'])
-        time.sleep(1.0) # Tiempo para que Nav2/AMCL procese la nueva pose
-
-
-    def _publish_initial_pose(self, x, y, yaw):
-        msg = PoseWithCovarianceStamped()
-        msg.header.frame_id = 'map'
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.pose.pose.position.x = float(x)
-        msg.pose.pose.position.y = float(y)
-        msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
-        msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
-        # Covarianza muy pequeña para obligar a Nav2 a aceptar esta pose
-        msg.pose.covariance = [0.01] + [0]*35 
-        self._initialpose_pub.publish(msg)
-        self.get_logger().info(f'Initial pose publicada: ({x}, {y})')        
-    # ── PID ───────────────────────────────────────────────────────────────────
-
-    def set_pid(self, kp: float, ki: float, kd: float):
-        """Inyecta las ganancias PID en mecanum_kinematic_node."""
-        while not self._pid_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().warn('Esperando /mecanum_kinematic_node/set_parameters...')
-
-        def _make_param(name, value):
-            return Parameter(
-                name=name,
-                value=ParameterValue(
-                    type=ParameterType.PARAMETER_DOUBLE,
-                    double_value=float(value)
-                )
-            )
-
-        req = SetParameters.Request()
-        req.parameters = [
-            _make_param('kp', kp),
-            _make_param('ki', ki),
-            _make_param('kd', kd),
-        ]
-        future = self._pid_client.call_async(req)
-        # Esperar sin bloquear el executor — usar timeout
-        deadline = time.time() + 3.0
-        while not future.done() and time.time() < deadline:
+ 
+    def _call(self, client, req, timeout=3.0):
+        """Llama a un servicio sin bloquear el executor."""
+        fut = client.call_async(req)
+        t0 = time.time()
+        while not fut.done() and time.time() - t0 < timeout:
             time.sleep(0.05)
-
-        if future.done() and future.result() is not None:
-            ok = all(r.successful for r in future.result().results)
-            if not ok:
-                self.get_logger().error('set_parameters rechazó las ganancias')
+        return fut.result() if fut.done() else None
+ 
+    # ── Odometría / ITAE ──────────────────────────────────────────────────────
+    def _odom_cb(self, msg: Odometry):
+        with self._odom_lock:
+            self._x = msg.pose.pose.position.x
+            self._y = msg.pose.pose.position.y
+            if not self._measuring:
+                return
+            now = Time.from_msg(msg.header.stamp).nanoseconds * 1e-9
+            dt = now - self._last_t
+            if dt <= 0.0:
+                dt = 1e-3
+            self._last_t = now
+            err = math.hypot(self._ref_x - self._x, self._ref_y - self._y)
+            self._itae += (now - self._t0) * err * dt
+ 
+    def _start_measuring(self, ref_x, ref_y):
+        with self._odom_lock:
+            self._ref_x, self._ref_y = ref_x, ref_y
+            self._itae = 0.0
+            self._t0 = self._last_t = self._now()
+            self._measuring = True
+ 
+    def _stop_measuring(self):
+        with self._odom_lock:
+            self._measuring = False
+            err_f = math.hypot(self._ref_x - self._x, self._ref_y - self._y)
+            return self._itae, err_f
+ 
+    # ── Reset del robot ───────────────────────────────────────────────────────
+    def reset_robot(self):
+        """Teletransporta al WP1 y reinicia odometría y controlador."""
+        self._cmd_vel_pub.publish(Twist())
+        time.sleep(0.2)
+ 
+        spawn = self._waypoints[0]
+        x, y = float(spawn["x"]), float(spawn["y"])
+        qx, qy, qz, qw = self._yaw_to_quat(SPAWN_YAW)
+        z = 0.05
+ 
+        done = False
+        if self._tp_client.wait_for_service(timeout_sec=2.0):
+            req = SetEntityPose.Request()
+            req.entity.name = ROBOT_NAME
+            req.entity.type = Entity.MODEL
+            req.pose = Pose(position=Point(x=x, y=y, z=z),
+                            orientation=Quaternion(x=qx, y=qy, z=qz, w=qw))
+            done = self._call(self._tp_client, req) is not None
+ 
+        if not done:  # fallback: gz service
+            rs = (f'name: "{ROBOT_NAME}", position: {{x: {x}, y: {y}, z: {z}}}, '
+                  f'orientation: {{x: {qx}, y: {qy}, z: {qz}, w: {qw}}}')
+            try:
+                subprocess.run(
+                    ["gz", "service", "-s", f"/world/{WORLD_NAME}/set_pose",
+                     "--reqtype", "gz.msgs.Pose", "--reptype", "gz.msgs.Boolean",
+                     "--timeout", "2000", "--req", rs],
+                    check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except subprocess.CalledProcessError as e:
+                self.get_logger().error(f"gz service falló: {e.stderr.decode()}")
+ 
+        time.sleep(1.0)  # el robot cae y se asienta
+ 
+        if self._reset_odom_cli.wait_for_service(timeout_sec=2.0):
+            self._call(self._reset_odom_cli, Empty.Request(), 2.0)
         else:
-            self.get_logger().error('set_parameters timeout')
-
+            self.get_logger().warn("reset_pose de odometría no disponible")
+        if self._reset_ctrl_cli.wait_for_service(timeout_sec=2.0):
+            self._call(self._reset_ctrl_cli, Empty.Request(), 2.0)
+        else:
+            self.get_logger().warn("reset_controller_state no disponible")
+        time.sleep(0.3)
+        self.get_logger().info("Robot reseteado en WP1")
+ 
+    # ── PID (opcional) ────────────────────────────────────────────────────────
+    def set_pid(self, kp, ki, kd):
+        if not self._pid_client.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error("mecanum_kinematic_node no disponible")
+            return
+ 
+        def _p(n, v):
+            return Parameter(name=n, value=ParameterValue(
+                type=ParameterType.PARAMETER_DOUBLE, double_value=float(v)))
+ 
+        req = SetParameters.Request()
+        req.parameters = [_p("kp", kp), _p("ki", ki), _p("kd", kd)]
+        res = self._call(self._pid_client, req)
+        if res is None or not all(r.successful for r in res.results):
+            self.get_logger().error("No se pudieron fijar las ganancias PID")
+        else:
+            self.get_logger().info(f"PID fijado: Kp={kp} Ki={ki} Kd={kd}")
+ 
     # ── Navegación ────────────────────────────────────────────────────────────
-
-    def navigate_zigzag(self) -> tuple[bool, float]:
-        """
-        Envía los waypoints 2-4 a Nav2 y espera el resultado.
-        Retorna (éxito, tiempo_segundos).
-        """
+    def navigate_waypoints(self):
+        """Envía WP2..WPn a Nav2. Devuelve dict con el resultado."""
         while not self._nav_client.wait_for_server(timeout_sec=1.0):
-            self.get_logger().info('Esperando Nav2...')
-
+            self.get_logger().info("Esperando Nav2...")
+ 
         goal = NavigateThroughPoses.Goal()
-
-        # WP1 es el inicio (spawn) — Nav2 recibe WP2, WP3, WP4
-        for wp in self._waypoints[1:]:
+        for wp in self._waypoints[1:]:      # WP1 es solo el spawn
             pose = PoseStamped()
-            pose.header.frame_id = 'map'
+            pose.header.frame_id = "map"
             pose.header.stamp = self.get_clock().now().to_msg()
-            pose.pose.position.x = float(wp['x'])
-            pose.pose.position.y = float(wp['y'])
-            qx, qy, qz, qw = self._yaw_to_quat(float(wp['yaw']))
-            pose.pose.orientation.x = qx
-            pose.pose.orientation.y = qy
-            pose.pose.orientation.z = qz
-            pose.pose.orientation.w = qw
+            pose.pose.position.x = float(wp["x"])
+            pose.pose.position.y = float(wp["y"])
+            qx, qy, qz, qw = self._yaw_to_quat(float(wp["yaw"]))
+            pose.pose.orientation.x, pose.pose.orientation.y = qx, qy
+            pose.pose.orientation.z, pose.pose.orientation.w = qz, qw
             goal.poses.append(pose)
-
-        # Activar medición ITAE hacia el último waypoint
-        last_wp = self._waypoints[-1]
-        self._start_measuring(float(last_wp['x']), float(last_wp['y']))
-
-        t_start = time.time()
+ 
+        last = self._waypoints[-1]
+        self._start_measuring(float(last["x"]), float(last["y"]))
+        t_start = self._now()
+ 
         send_future = self._nav_client.send_goal_async(goal)
-
-        # Esperar aceptación sin bloquear executor
         deadline = time.time() + 5.0
         while not send_future.done() and time.time() < deadline:
             time.sleep(0.05)
-
-        if not send_future.done() or send_future.result() is None:
+ 
+        if not send_future.done() or send_future.result() is None \
+                or not send_future.result().accepted:
+            self.get_logger().error("Nav2 no aceptó la ruta")
             self._stop_measuring()
-            return False, 0.0
-
-        goal_handle = send_future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error('Nav2 rechazó la ruta')
-            self._stop_measuring()
-            return False, 0.0
-
-        # Esperar resultado (timeout generoso: 120s)
-        result_future = goal_handle.get_result_async()
-        deadline = time.time() + 120.0
+            return {"success": False, "time": 0.0, "itae": 0.0,
+                    "final_error": float("nan"), "status": None}
+ 
+        result_future = send_future.result().get_result_async()
+        deadline = time.time() + NAV_TIMEOUT
         while not result_future.done() and time.time() < deadline:
             time.sleep(0.1)
-
-        elapsed = time.time() - t_start
-        itae = self._stop_measuring()
-
+ 
+        elapsed = self._now() - t_start
+        itae, err_f = self._stop_measuring()
+ 
         if not result_future.done():
-            self.get_logger().warn('Nav2 timeout')
-            return False, elapsed
-
+            self.get_logger().warn("Nav2 timeout")
+            return {"success": False, "time": elapsed, "itae": itae,
+                    "final_error": err_f, "status": None}
+ 
         status = result_future.result().status
-        success = (status == GoalStatus.STATUS_SUCCEEDED)
-        if success:
-            self.get_logger().info(f'Ruta completada — t={elapsed:.1f}s ITAE={itae:.3f}')
-        else:
-            self.get_logger().warn(f'Ruta fallida — status={status}')
-
-        return success, elapsed
-
-    # ── Función de fitness ────────────────────────────────────────────────────
-
-    def evaluate(self, individual) -> tuple:
-        """
-        Función de fitness para DEAP.
-        Cromosoma: [Kp, Ki, Kd]
-        Retorna: (costo,)  — menor es mejor.
-
-        Costo = w1 * tiempo_normalizado + w2 * ITAE + penalización_colisión
-        """
-        kp, ki, kd = individual
-        self.get_logger().info(
-            f'Evaluando — Kp={kp:.3f} Ki={ki:.3f} Kd={kd:.3f}'
-        )
-
-        # 1. Reset
-        self.reset_robot()
-        time.sleep(1.5)  # esperar que Gazebo aplique el teleport
-
-
-        # 2. Inyectar ganancias
-        self.set_pid(kp, ki, kd)
-        time.sleep(0.3)
-
-        # 3. Navegar y medir
-        success, elapsed = self.navigate_zigzag()
-
-        # 4. Calcular costo
-        with self._odom_lock:
-            itae = self._itae_accum
-
-        if success:
-            # Normalización: tiempo_ref=30s, itae_ref=1.0
-            w_time = 0.4
-            w_itae = 0.6
-            cost = w_time * (elapsed / 30.0) + w_itae * itae
-        else:
-            cost = PENALTY
-
-        self.get_logger().info(f'Costo = {cost:.4f}')
-        return (cost,)
-
-
-# ── Bounds para operadores DEAP ────────────────────────────────────────────────
-
-def check_bounds(func):
-    """Decorador que mantiene Kp, Ki, Kd dentro de sus rangos."""
-    def wrapper(*args, **kwargs):
-        offspring = func(*args, **kwargs)
-        bounds = [KP_RANGE, KI_RANGE, KD_RANGE]
-        for child in offspring:
-            for i, (lo, hi) in enumerate(bounds):
-                child[i] = float(max(lo, min(hi, child[i])))
-        return offspring
-    return wrapper
-
-
-# ── Main ───────────────────────────────────────────────────────────────────────
-
+        ok = status == GoalStatus.STATUS_SUCCEEDED
+        (self.get_logger().info if ok else self.get_logger().warn)(
+            f"Ruta {'completada' if ok else 'fallida'} — status={status} "
+            f"t={elapsed:.1f}s ITAE={itae:.3f} err_final={err_f:.3f}m")
+        return {"success": ok, "time": elapsed, "itae": itae,
+                "final_error": err_f, "status": int(status)}
+ 
+    # ── Rutina principal ──────────────────────────────────────────────────────
+    def run(self):
+        runs = int(self.get_parameter("runs").value)
+        results = []
+ 
+        if self.get_parameter("set_gains").value:
+            self.set_pid(self.get_parameter("kp").value,
+                         self.get_parameter("ki").value,
+                         self.get_parameter("kd").value)
+ 
+        for i in range(runs):
+            self.get_logger().info(f"── Corrida {i + 1}/{runs} ──")
+            if self.get_parameter("reset_between_runs").value or i == 0:
+                self.reset_robot()
+            results.append(self.navigate_waypoints())
+ 
+        with open(OUT_JSON, "w") as f:
+            json.dump({"runs": results}, f, indent=2)
+        self.get_logger().info(f"Resultados guardados en {OUT_JSON}")
+ 
+ 
 def main(args=None):
     rclpy.init(args=args)
-    node = AGArenaEvaluator()
-
-    # Executor en hilo separado — el AG corre en el hilo principal
+    node = WaypointRunner()
+ 
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
-    ros_thread = threading.Thread(target=executor.spin, daemon=True)
-    ros_thread.start()
-
+    threading.Thread(target=executor.spin, daemon=True).start()
+ 
+    while node._now() == 0.0:      # espera al reloj de simulación
+        time.sleep(0.05)
+ 
     try:
-        # ── Configurar DEAP ───────────────────────────────────────────────────
-        toolbox = base.Toolbox()
-
-        toolbox.register('kp',  random.uniform, *KP_RANGE)
-        toolbox.register('ki',  random.uniform, *KI_RANGE)
-        toolbox.register('kd',  random.uniform, *KD_RANGE)
-
-        toolbox.register(
-            'individual', tools.initCycle, creator.Individual,
-            (toolbox.kp, toolbox.ki, toolbox.kd), n=1
-        )
-        toolbox.register('population', tools.initRepeat, list, toolbox.individual)
-
-        toolbox.register('evaluate', node.evaluate)
-        toolbox.register('mate',     tools.cxBlend, alpha=0.5)
-        toolbox.register('mutate',   tools.mutGaussian, mu=0, sigma=0.5, indpb=0.3)
-        toolbox.register('select',   tools.selTournament, tournsize=3)
-
-        toolbox.decorate('mate',   check_bounds)
-        toolbox.decorate('mutate', check_bounds)
-
-        # Estadísticas
-        stats = tools.Statistics(lambda ind: ind.fitness.values[0])
-        stats.register('min',  min)
-        stats.register('mean', lambda x: sum(x) / len(x))
-        stats.register('max',  max)
-
-        hof = tools.HallOfFame(3)  # guardar los 3 mejores
-
-        # ── Evolución ─────────────────────────────────────────────────────────
-        node.get_logger().info(
-            f'Iniciando AG — pop={POP_SIZE} gen={N_GEN}'
-        )
-        pop = toolbox.population(n=POP_SIZE)
-
-        pop, log = algorithms.eaSimple(
-            pop, toolbox,
-            cxpb=CX_PROB, mutpb=MUT_PROB,
-            ngen=N_GEN,
-            stats=stats, halloffame=hof,
-            verbose=True
-        )
-
-        # ── Resultados ────────────────────────────────────────────────────────
-        best = hof[0]
-        node.get_logger().info('\n' + '='*50)
-        node.get_logger().info('MEJOR INDIVIDUO ENCONTRADO:')
-        node.get_logger().info(f'  Kp = {best[0]:.6f}')
-        node.get_logger().info(f'  Ki = {best[1]:.6f}')
-        node.get_logger().info(f'  Kd = {best[2]:.6f}')
-        node.get_logger().info(f'  Costo = {best.fitness.values[0]:.6f}')
-        node.get_logger().info('='*50)
-
-        # Guardar resultados
-        results = {
-            'best': {'kp': best[0], 'ki': best[1], 'kd': best[2],
-                     'cost': best.fitness.values[0]},
-            'hall_of_fame': [
-                {'kp': ind[0], 'ki': ind[1], 'kd': ind[2],
-                 'cost': ind.fitness.values[0]}
-                for ind in hof
-            ],
-            'log': str(log)
-        }
-        import json
-        out_path = '/tmp/ga_results.json'
-        with open(out_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        node.get_logger().info(f'Resultados guardados en {out_path}')
-
+        node.run()
     finally:
         executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
-
-
-if __name__ == '__main__':
+ 
+ 
+if __name__ == "__main__":
     main()
+
+
+
+
+# # Ruta al yaml de waypoints — instalada junto con el paquete
+# WAYPOINTS_PATH = os.path.join(
+#     os.path.dirname(os.path.abspath(__file__)),
+#     '..', '..', '..', 'share', 'omni_dofbot_bringup', 'config', 'waypoints.yaml'
+# )
+
+
+# # ── Definición DEAP (fuera de main para que creator no se llame dos veces) ────
+# creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
+# creator.create("Individual", list, fitness=creator.FitnessMin)
+
+
+# class AGArenaEvaluator(Node):
+#     """
+#     Nodo ROS 2 que actúa como entorno de evaluación para el AG.
+#     Corre en un MultiThreadedExecutor en un hilo separado para que
+#     los futuros de ROS 2 no bloqueen el hilo del AG (DEAP).
+#     """
+
+#     def __init__(self):
+#         super().__init__('ag_arena_evaluator')
+#         #Nuevo
+#         self._initialpose_pub = self.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
+
+#         # Callback group reentrant: permite llamadas concurrentes al mismo nodo
+#         self._cbg = ReentrantCallbackGroup()
+
+#         # ── Clientes de servicio y acción ─────────────────────────────────────
+#         self._pid_client = self.create_client(
+#             SetParameters,
+#             '/mecanum_kinematic_node/set_parameters',
+#             callback_group=self._cbg
+#         )
+#         self._nav_client = ActionClient(
+#             self,
+#             NavigateThroughPoses,
+#             'navigate_through_poses',
+#             callback_group=self._cbg
+#         )
+#         self._set_pose_client = self.create_client(
+#             SetEntityPose,
+#             '/world/arena_world/set_entity_pose',
+#             callback_group=self._cbg
+#         )
+#         self._cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        
+
+#         # ── Suscripción a odometría para calcular ITAE ────────────────────────
+#         self._odom_lock   = threading.Lock()
+#         self._current_x   = 0.0
+#         self._current_y   = 0.0
+#         self._itae_accum  = 0.0
+#         self._ref_x       = 0.0
+#         self._ref_y       = 0.0
+#         self._measuring   = False
+
+#         self.create_subscription(
+#             Odometry, '/odom', self._odom_cb, 10,
+#             callback_group=self._cbg
+#         )
+
+#         # ── Cargar waypoints ──────────────────────────────────────────────────
+#         self._waypoints = self._load_waypoints()
+#         self.get_logger().info(
+#             f'AG listo — {len(self._waypoints)} waypoints cargados'
+#         )
+
+#     # ── Odometría / ITAE ──────────────────────────────────────────────────────
+
+#     def _odom_cb(self, msg: Odometry):
+#         with self._odom_lock:
+#             self._current_x = msg.pose.pose.position.x
+#             self._current_y = msg.pose.pose.position.y
+#             if self._measuring:
+#                 ex = self._ref_x - self._current_x
+#                 ey = self._ref_y - self._current_y
+#                 # ITAE: Integral of Absolute Error ponderado por tiempo
+#                 # Aquí usamos IAE simple; el tiempo lo lleva el caller
+#                 self._itae_accum += math.sqrt(ex**2 + ey**2) * 0.05  # dt≈50Hz
+
+#     def _start_measuring(self, ref_x: float, ref_y: float):
+#         with self._odom_lock:
+#             self._ref_x      = ref_x
+#             self._ref_y      = ref_y
+#             self._itae_accum = 0.0
+#             self._measuring  = True
+
+#     def _stop_measuring(self) -> float:
+#         with self._odom_lock:
+#             self._measuring = False
+#             return self._itae_accum
+
+#     # ── Waypoints ─────────────────────────────────────────────────────────────
+
+#     def _load_waypoints(self) -> list:
+#         # Obtener la ruta de instalación del paquete
+#         package_share_dir = get_package_share_directory('omni_dofbot_bringup')
+    
+#         # Construir la ruta absoluta correcta
+#         path = os.path.join(package_share_dir, 'config', 'waypoints.yaml')
+        
+#         self.get_logger().info(f"Buscando waypoints en: {path}")
+        
+#         if not os.path.exists(path):
+#             self.get_logger().error(f"¡Archivo no encontrado en {path}!")
+#             return []
+
+#         with open(path, 'r') as f:
+#             data = yaml.safe_load(f)
+#         return data['waypoints']
+
+#     @staticmethod
+#     def _yaw_to_quat(yaw: float):
+#         return 0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0)
+
+#     # ── Reset del robot ───────────────────────────────────────────────────────
+
+#     def reset_robot(self):
+#         """Teletransporta el robot a la posición de inicio (WP1)."""
+#         # 1. FRENADO DE EMERGENCIA: Detener las ruedas antes del salto
+#         stop_msg = Twist()
+#         self._cmd_vel_pub.publish(stop_msg)
+#         time.sleep(0.2) # Dar tiempo a que los motores se detengan
+
+#         spawn = self._waypoints[0]
+#         x = float(spawn['x'])
+#         y = float(spawn['y'])
+#         z_seguro = 0.05 # 15 cm: Caída libre segura para evitar clipping
+
+#         # ── Método 1: servicio ROS 2 (preferido) ──────────────────────────────
+#         if hasattr(self, '_set_pose_client'):
+#             if self._set_pose_client.wait_for_service(timeout_sec=1.0):
+#                 req = SetEntityPose.Request()
+#                 req.entity.name = 'omni_dofbot'
+#                 req.entity.type = Entity.MODEL
+                
+#                 req.pose = Pose()
+#                 req.pose.position = Point(x=x, y=y, z=z_seguro) # Usar z_seguro
+#                 req.pose.orientation = Quaternion(x=0.0, y=0.0, z=0.0, w=1.0)
+
+#                 future = self._set_pose_client.call_async(req)
+#                 deadline = time.time() + 2.0
+#                 while not future.done() and time.time() < deadline:
+#                     time.sleep(0.05)
+                
+#                 if future.done() and future.result() is not None:
+#                     self.get_logger().info('Robot reseteado via ROS 2')
+#                     time.sleep(1.0) # Tiempo para que caiga y se asiente
+#                     return
+
+#         # ── Método 2: gz service (fallback) ───────────────────────────────────
+#         req_str = (
+#             f'name: "omni_dofbot", '
+#             f'position: {{x: {x}, y: {y}, z: {z_seguro}}}, '
+#             f'orientation: {{x: 0.0, y: 0.0, z: 0.707171068, w: 0.7071068}}'
+#         )
+
+#         cmd = [
+#             'gz', 'service', '-s', '/world/arena_world/set_pose',
+#             '--reqtype', 'gz.msgs.Pose', '--reptype', 'gz.msgs.Boolean',
+#             '--timeout', '2000', '--req', req_str
+#         ]
+
+#         try:
+#             subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+#             self.get_logger().info('Robot reseteado via gz service')
+#             time.sleep(1.0) # Tiempo para que caiga y se asiente
+#         except subprocess.CalledProcessError as e:
+#             self.get_logger().error(f'gz service falló: {e.stderr.decode()}')
+
+#         spawn = self._waypoints[0]
+#         self._publish_initial_pose(spawn['x'], spawn['y'], spawn['yaw'])
+#         time.sleep(1.0) # Tiempo para que Nav2/AMCL procese la nueva pose
+
+
+#     def _publish_initial_pose(self, x, y, yaw):
+#         msg = PoseWithCovarianceStamped()
+#         msg.header.frame_id = 'map'
+#         msg.header.stamp = self.get_clock().now().to_msg()
+#         msg.pose.pose.position.x = float(x)
+#         msg.pose.pose.position.y = float(y)
+#         msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+#         msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+#         # Covarianza muy pequeña para obligar a Nav2 a aceptar esta pose
+#         msg.pose.covariance = [0.01] + [0]*35 
+#         self._initialpose_pub.publish(msg)
+#         self.get_logger().info(f'Initial pose publicada: ({x}, {y})')        
+#     # ── PID ───────────────────────────────────────────────────────────────────
+
+#     def set_pid(self, kp: float, ki: float, kd: float):
+#         """Inyecta las ganancias PID en mecanum_kinematic_node."""
+#         while not self._pid_client.wait_for_service(timeout_sec=1.0):
+#             self.get_logger().warn('Esperando /mecanum_kinematic_node/set_parameters...')
+
+#         def _make_param(name, value):
+#             return Parameter(
+#                 name=name,
+#                 value=ParameterValue(
+#                     type=ParameterType.PARAMETER_DOUBLE,
+#                     double_value=float(value)
+#                 )
+#             )
+
+#         req = SetParameters.Request()
+#         req.parameters = [
+#             _make_param('kp', kp),
+#             _make_param('ki', ki),
+#             _make_param('kd', kd),
+#         ]
+#         future = self._pid_client.call_async(req)
+#         # Esperar sin bloquear el executor — usar timeout
+#         deadline = time.time() + 3.0
+#         while not future.done() and time.time() < deadline:
+#             time.sleep(0.05)
+
+#         if future.done() and future.result() is not None:
+#             ok = all(r.successful for r in future.result().results)
+#             if not ok:
+#                 self.get_logger().error('set_parameters rechazó las ganancias')
+#         else:
+#             self.get_logger().error('set_parameters timeout')
+
+#     # ── Navegación ────────────────────────────────────────────────────────────
+
+#     def navigate_zigzag(self) -> tuple[bool, float]:
+#         """
+#         Envía los waypoints 2-4 a Nav2 y espera el resultado.
+#         Retorna (éxito, tiempo_segundos).
+#         """
+#         while not self._nav_client.wait_for_server(timeout_sec=1.0):
+#             self.get_logger().info('Esperando Nav2...')
+
+#         goal = NavigateThroughPoses.Goal()
+
+#         # WP1 es el inicio (spawn) — Nav2 recibe WP2, WP3, WP4
+#         for wp in self._waypoints[1:]:
+#             pose = PoseStamped()
+#             pose.header.frame_id = 'map'
+#             pose.header.stamp = self.get_clock().now().to_msg()
+#             pose.pose.position.x = float(wp['x'])
+#             pose.pose.position.y = float(wp['y'])
+#             qx, qy, qz, qw = self._yaw_to_quat(float(wp['yaw']))
+#             pose.pose.orientation.x = qx
+#             pose.pose.orientation.y = qy
+#             pose.pose.orientation.z = qz
+#             pose.pose.orientation.w = qw
+#             goal.poses.append(pose)
+
+#         # Activar medición ITAE hacia el último waypoint
+#         last_wp = self._waypoints[-1]
+#         self._start_measuring(float(last_wp['x']), float(last_wp['y']))
+
+#         t_start = time.time()
+#         send_future = self._nav_client.send_goal_async(goal)
+
+#         # Esperar aceptación sin bloquear executor
+#         deadline = time.time() + 5.0
+#         while not send_future.done() and time.time() < deadline:
+#             time.sleep(0.05)
+
+#         if not send_future.done() or send_future.result() is None:
+#             self._stop_measuring()
+#             return False, 0.0
+
+#         goal_handle = send_future.result()
+#         if not goal_handle.accepted:
+#             self.get_logger().error('Nav2 rechazó la ruta')
+#             self._stop_measuring()
+#             return False, 0.0
+
+#         # Esperar resultado (timeout generoso: 120s)
+#         result_future = goal_handle.get_result_async()
+#         deadline = time.time() + 120.0
+#         while not result_future.done() and time.time() < deadline:
+#             time.sleep(0.1)
+
+#         elapsed = time.time() - t_start
+#         itae = self._stop_measuring()
+
+#         if not result_future.done():
+#             self.get_logger().warn('Nav2 timeout')
+#             return False, elapsed
+
+#         status = result_future.result().status
+#         success = (status == GoalStatus.STATUS_SUCCEEDED)
+#         if success:
+#             self.get_logger().info(f'Ruta completada — t={elapsed:.1f}s ITAE={itae:.3f}')
+#         else:
+#             self.get_logger().warn(f'Ruta fallida — status={status}')
+
+#         return success, elapsed
+
+#     # ── Función de fitness ────────────────────────────────────────────────────
+
+#     def evaluate(self, individual) -> tuple:
+#         """
+#         Función de fitness para DEAP.
+#         Cromosoma: [Kp, Ki, Kd]
+#         Retorna: (costo,)  — menor es mejor.
+
+#         Costo = w1 * tiempo_normalizado + w2 * ITAE + penalización_colisión
+#         """
+#         kp, ki, kd = individual
+#         self.get_logger().info(
+#             f'Evaluando — Kp={kp:.3f} Ki={ki:.3f} Kd={kd:.3f}'
+#         )
+
+#         # 1. Reset
+#         self.reset_robot()
+#         time.sleep(1.5)  # esperar que Gazebo aplique el teleport
+
+
+#         # 2. Inyectar ganancias
+#         self.set_pid(kp, ki, kd)
+#         time.sleep(0.3)
+
+#         # 3. Navegar y medir
+#         success, elapsed = self.navigate_zigzag()
+
+#         # 4. Calcular costo
+#         with self._odom_lock:
+#             itae = self._itae_accum
+
+#         if success:
+#             # Normalización: tiempo_ref=30s, itae_ref=1.0
+#             w_time = 0.4
+#             w_itae = 0.6
+#             cost = w_time * (elapsed / 30.0) + w_itae * itae
+#         else:
+#             cost = PENALTY
+
+#         self.get_logger().info(f'Costo = {cost:.4f}')
+#         return (cost,)
+
+
+# # ── Bounds para operadores DEAP ────────────────────────────────────────────────
+
+# def check_bounds(func):
+#     """Decorador que mantiene Kp, Ki, Kd dentro de sus rangos."""
+#     def wrapper(*args, **kwargs):
+#         offspring = func(*args, **kwargs)
+#         bounds = [KP_RANGE, KI_RANGE, KD_RANGE]
+#         for child in offspring:
+#             for i, (lo, hi) in enumerate(bounds):
+#                 child[i] = float(max(lo, min(hi, child[i])))
+#         return offspring
+#     return wrapper
+
+
+# # ── Main ───────────────────────────────────────────────────────────────────────
+
+# def main(args=None):
+#     rclpy.init(args=args)
+#     node = AGArenaEvaluator()
+
+#     # Executor en hilo separado — el AG corre en el hilo principal
+#     executor = MultiThreadedExecutor(num_threads=4)
+#     executor.add_node(node)
+#     ros_thread = threading.Thread(target=executor.spin, daemon=True)
+#     ros_thread.start()
+
+#     try:
+#         # ── Configurar DEAP ───────────────────────────────────────────────────
+#         toolbox = base.Toolbox()
+
+#         toolbox.register('kp',  random.uniform, *KP_RANGE)
+#         toolbox.register('ki',  random.uniform, *KI_RANGE)
+#         toolbox.register('kd',  random.uniform, *KD_RANGE)
+
+#         toolbox.register(
+#             'individual', tools.initCycle, creator.Individual,
+#             (toolbox.kp, toolbox.ki, toolbox.kd), n=1
+#         )
+#         toolbox.register('population', tools.initRepeat, list, toolbox.individual)
+
+#         toolbox.register('evaluate', node.evaluate)
+#         toolbox.register('mate',     tools.cxBlend, alpha=0.5)
+#         toolbox.register('mutate',   tools.mutGaussian, mu=0, sigma=0.5, indpb=0.3)
+#         toolbox.register('select',   tools.selTournament, tournsize=3)
+
+#         toolbox.decorate('mate',   check_bounds)
+#         toolbox.decorate('mutate', check_bounds)
+
+#         # Estadísticas
+#         stats = tools.Statistics(lambda ind: ind.fitness.values[0])
+#         stats.register('min',  min)
+#         stats.register('mean', lambda x: sum(x) / len(x))
+#         stats.register('max',  max)
+
+#         hof = tools.HallOfFame(3)  # guardar los 3 mejores
+
+#         # ── Evolución ─────────────────────────────────────────────────────────
+#         node.get_logger().info(
+#             f'Iniciando AG — pop={POP_SIZE} gen={N_GEN}'
+#         )
+#         pop = toolbox.population(n=POP_SIZE)
+
+#         pop, log = algorithms.eaSimple(
+#             pop, toolbox,
+#             cxpb=CX_PROB, mutpb=MUT_PROB,
+#             ngen=N_GEN,
+#             stats=stats, halloffame=hof,
+#             verbose=True
+#         )
+
+#         # ── Resultados ────────────────────────────────────────────────────────
+#         best = hof[0]
+#         node.get_logger().info('\n' + '='*50)
+#         node.get_logger().info('MEJOR INDIVIDUO ENCONTRADO:')
+#         node.get_logger().info(f'  Kp = {best[0]:.6f}')
+#         node.get_logger().info(f'  Ki = {best[1]:.6f}')
+#         node.get_logger().info(f'  Kd = {best[2]:.6f}')
+#         node.get_logger().info(f'  Costo = {best.fitness.values[0]:.6f}')
+#         node.get_logger().info('='*50)
+
+#         # Guardar resultados
+#         results = {
+#             'best': {'kp': best[0], 'ki': best[1], 'kd': best[2],
+#                      'cost': best.fitness.values[0]},
+#             'hall_of_fame': [
+#                 {'kp': ind[0], 'ki': ind[1], 'kd': ind[2],
+#                  'cost': ind.fitness.values[0]}
+#                 for ind in hof
+#             ],
+#             'log': str(log)
+#         }
+#         import json
+#         out_path = '/tmp/ga_results.json'
+#         with open(out_path, 'w') as f:
+#             json.dump(results, f, indent=2)
+#         node.get_logger().info(f'Resultados guardados en {out_path}')
+
+#     finally:
+#         executor.shutdown()
+#         node.destroy_node()
+#         rclpy.shutdown()
+
+
+# if __name__ == '__main__':
+#     main()

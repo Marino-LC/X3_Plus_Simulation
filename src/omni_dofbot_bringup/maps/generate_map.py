@@ -16,10 +16,10 @@ RESOLUTION = 0.02
 ARENA_W    = 2.7
 ARENA_H    = 2.7
 WALL_T     = 0.03
-ORIGIN_X   = -ARENA_W / 2.0   # -0.61
-ORIGIN_Y   = -ARENA_H / 2.0   # -1.21
-MAP_W      = int(ARENA_W / RESOLUTION)   # 61
-MAP_H      = int(ARENA_H / RESOLUTION)   # 121
+ORIGIN_X   = -ARENA_W / 2.0   # -1.35
+ORIGIN_Y   = -ARENA_H / 2.0   # -1.35
+MAP_W      = int(ARENA_W / RESOLUTION)   # 135
+MAP_H      = int(ARENA_H / RESOLUTION)   # 135
 
 FREE     = 254
 OCCUPIED = 0
@@ -28,14 +28,13 @@ OCCUPIED = 0
 OBSTACLES = [
     (0.00,  0.25, 0.15, 0.15),   # O1 — centro norte
     (0.00, -0.30, 0.15, 0.15),   # O2 — centro sur
+    (0.00,  0.81, 0.15, 0.15),   # Pedestal
 ]
-
 
 def world_to_pixel(x, y):
     col = int((x - ORIGIN_X) / RESOLUTION)
     row = int((y - ORIGIN_Y) / RESOLUTION)
     return col, row
-
 
 def draw_rect(grid, xc, yc, w, h, value, margin=0.0):
     c0, r0 = world_to_pixel(xc - w/2 - margin, yc - h/2 - margin)
@@ -43,7 +42,6 @@ def draw_rect(grid, xc, yc, w, h, value, margin=0.0):
     c0 = max(0, min(MAP_W-1, c0)); c1 = max(0, min(MAP_W-1, c1))
     r0 = max(0, min(MAP_H-1, r0)); r1 = max(0, min(MAP_H-1, r1))
     grid[r0:r1+1, c0:c1+1] = value
-
 
 def main():
     print('Generando mapa v2 — cajas centradas en x=0')
@@ -80,7 +78,6 @@ free_thresh: 0.25
     print(f'  Mapa: {MAP_W}×{MAP_H} px  libre={free}  ocupado={occ}')
     print('Listo. Copia los archivos:')
     print('  cp arena_map.pgm arena_map.yaml src/omni_dofbot_bringup/maps/')
-
 
 if __name__ == '__main__':
     main()
