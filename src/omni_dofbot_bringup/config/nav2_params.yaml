@@ -1,14 +1,23 @@
-# nav2_params.yaml — ROS 2 Jazzy (corregido)
+# nav2_params.yaml — ROS 2 Jazzy — homologado con el gemelo digital
 #
-# Fixes aplicados:
-#   1. obstacle_layer y inflation_layer declarados con namespace completo
-#      bajo local_costmap/global_costmap para que Nav2 encuentre 'plugin'
-#   2. Critics de DWB declarados como string separado por comas (no lista YAML)
-#   3. set_initial_pose: false en AMCL para evitar crash del state machine
+# Parámetros reales del robot segun mecanum_kinematic_node.py y ag_motion_tests.py:
+#   wheel_radius r        = 0.040 m
+#   lx, ly                = 0.110, 0.102 m   (k = lx+ly = 0.212 m)
+#   max_wheel_vel         = 25 rad/s  -> 1.0 m/s por rueda (límite de seguridad)
+#   motor_tau             = 0.5797 s  (dinámica electromecánica identificada)
+#   control_rate PID      = 100 Hz ;  cmd_vel_timeout = 0.5 s
+#   Velocidades validadas = VX_REF 0.40 m/s, WZ_REF 1.00 rad/s
+#   Tolerancias validadas = POS_TOL 0.04 m, YAW_TOL 0.05 rad
+#   Lazo de pruebas       = CTRL_DT 0.05 s (20 Hz)
+#   Spawn                 = (0, -0.91), yaw = pi/2 (launch: -Y 1.570796; odom reset yaw = pi/2)
+#
+# Chequeo de saturación: vx=0.40 + wz=1.0 -> (0.40 + 0.212*1.0)/0.04 = 15.3 rad/s < 25 rad/s  OK
 
 amcl:
   ros__parameters:
     use_sim_time: True
+    # Base mecanum = holonómica: modelo de movimiento omnidireccional (usa alpha1..alpha5)
+    robot_model_type: "nav2_amcl::OmniMotionModel"
     alpha1: 0.2
     alpha2: 0.2
     alpha3: 0.2
@@ -22,30 +31,22 @@ amcl:
     min_particles: 200
     max_particles: 1000
     laser_model_type: "likelihood_field"
-    laser_max_range: 3.5
-    laser_min_range: 0.15
+    laser_max_range: 30
+    laser_min_range: 0.05
     max_beams: 60
     set_initial_pose: true
     always_reset_initial_pose: true
+    # Pose inicial debe coincidir con el spawn real: (0, -0.91) mirando a +Y (yaw = pi/2).
     initial_pose:
       x: 0.0
       y: -0.91
       z: 0.0
-      yaw: 0.0
+      yaw: 1.5708
     transform_tolerance: 1.0
     update_min_d: 0.1
     update_min_a: 0.1
     resample_interval: 1
     tf_broadcast: true
-
-
-# ── REEMPLAZA la sección bt_navigator en tu nav2_params.yaml ────────────────
-#
-# Cambio clave: default_nav_through_poses_bt_xml apunta al BT simple
-# sin replanning ni recovery. Esto evita que el behavior_server
-# active "spin" cuando el planner falla, lo cual confunde al AG.
-#
-# Pega esto en nav2_params.yaml reemplazando la sección bt_navigator existente.
 
 bt_navigator:
   ros__parameters:
@@ -66,63 +67,63 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.10
+      tolerance: 0.05          # ~POS_TOL
       use_astar: true
       allow_unknown: false
-
 
 controller_server:
   ros__parameters:
     use_sim_time: True
-    controller_frequency: 20.0
-    min_x_velocity_threshold: 0.001
-    min_y_velocity_threshold: 0.001
-    min_theta_velocity_threshold: 0.001
+    controller_frequency: 20.0          # = 1/CTRL_DT de las pruebas del AG
+    min_x_velocity_threshold: 0.002     # = error_deadband_mm_s del nodo cinemático (2 mm/s)
+    min_y_velocity_threshold: 0.002
+    min_theta_velocity_threshold: 0.002
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
-
+ 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.03
-      movement_time_allowance: 15.0
-
+      movement_time_allowance: 15.0     # holgura por zona muerta / arranque (breakaway)
+ 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.1
-      yaw_goal_tolerance: 0.35
+      xy_goal_tolerance: 0.05           # POS_TOL = 0.04 m + margen
+      yaw_goal_tolerance: 0.10          # 2 x YAW_TOL
       stateful: true
-
+ 
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      min_vel_x: -0.30
-      max_vel_x:  0.30
-      #ORIGINALMENTE POR MARINO
-      # min_vel_y: -0.30
-      # max_vel_y:  0.30
-      # Gazebo no desplaza lateralmente, las mecanum -> sin vy
+      # ── Límites de velocidad: los validados en la batería P1-P3 ──
+      min_vel_x: -0.40
+      max_vel_x:  0.40
+      # Gazebo no desplaza lateralmente las mecanum (mallas sin rodillos) -> vy = 0 en simulación.
+      # En el robot real (P1y validada a 0.40 m/s) usar:
+      #   min_vel_y: -0.40 / max_vel_y: 0.40 / vy_samples: 10 / acc_lim_y: 0.6 / decel_lim_y: -0.6
       min_vel_y: 0.0
       max_vel_y: 0.0
       min_vel_theta: -1.0
       max_vel_theta:  1.0
-      min_speed_xy:   0.08
-      max_speed_xy:   0.30
-      min_speed_theta: 0.25
-      acc_lim_x:      1.0
+      min_speed_xy:   0.10
+      max_speed_xy:   0.40
+      min_speed_theta: 0.30
+      # ── Aceleraciones: acotadas por motor_tau = 0.58 s (v/tau ≈ 0.4/0.58 ≈ 0.7 m/s²) ──
+      acc_lim_x:      0.6
       acc_lim_y:      0.0
-      acc_lim_theta:  2.0
-      decel_lim_x:   -1.0
+      acc_lim_theta:  1.5
+      decel_lim_x:   -0.6
       decel_lim_y:    0.0
-      decel_lim_theta: -2.0
+      decel_lim_theta: -1.5
       vx_samples:     10
       vy_samples:     1
       vtheta_samples: 10
-      sim_time: 1.2
+      sim_time: 1.5                      # cubre el retardo del motor (tau)
       linear_granularity: 0.05
       angular_granularity: 0.025
       transform_tolerance: 0.3
-      xy_goal_tolerance: 0.1
+      xy_goal_tolerance: 0.05            # igual que goal_checker
       short_circuit_trajectory_eval: true
       critics: ["RotateToGoal","Oscillation","BaseObstacle","GoalAlign","PathAlign","PathDist","GoalDist"]
       BaseObstacle.scale: 0.02
@@ -134,12 +135,10 @@ controller_server:
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
 
-
-# FIX: los plugins del costmap deben declararse con su namespace completo
-# En Jazzy, local_costmap espera los parámetros bajo:
-#   local_costmap.local_costmap.ros__parameters.<plugin_name>.plugin
-# NO bajo local_costmap.local_costmap.ros__parameters.plugins.<plugin_name>
-
+# Footprint: ruedas a lx=0.110 / ly=0.102 desde el centro.
+#   x: lx + r = 0.110 + 0.040 = 0.150 (borde exterior de la rueda)
+#   y: ly + ~medio ancho de rueda ≈ 0.12
+# Verificar contra el URDF (bumpers, mástil, brazo en HOME).
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -152,8 +151,8 @@ local_costmap:
       width:  2
       height: 2
       resolution: 0.02
-      footprint: "[ [0.14, 0.12], [0.14, -0.12], [-0.14, -0.12], [-0.14, 0.12] ]"
-      plugins: ["static_layer", "inflation_layer"] # obstacle_layer detecta los obstaculos en tiempo real, cosa que despues debemos calibrar con los sensores.
+      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.15, -0.12], [-0.15, 0.12] ]"
+      # (antes había dos claves 'plugins'; YAML se queda con la última y se perdía la primera)
       plugins: ["obstacle_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -169,20 +168,16 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 1.8
           obstacle_min_range: 0.0
-      static_layer:
-        plugin: "nav2_costmap_2d::StaticLayer"
-        map_subscribe_transient_local: true
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 4.0
-        inflation_radius: 0.18
+        inflation_radius: 0.20          # radio circunscrito ≈ 0.19 m
   local_costmap_client:
     ros__parameters:
       use_sim_time: True
   local_costmap_rclcpp_node:
     ros__parameters:
       use_sim_time: True
-
 
 global_costmap:
   global_costmap:
@@ -193,7 +188,8 @@ global_costmap:
       transform_tolerance: 1.0 # Tolerancia de transformación de TF
       global_frame: map # El valor del global frame no es odom, es map 
       robot_base_frame: base_footprint
-      robot_radius: 0.15
+      # Mismo footprint que el local (antes: robot_radius 0.15, inconsistente)
+      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.15, -0.12], [-0.15, 0.12] ]"
       resolution: 0.02
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -218,54 +214,55 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 4.0
-        inflation_radius: 0.18
+        inflation_radius: 0.20
   global_costmap_client:
     ros__parameters:
       use_sim_time: True
   global_costmap_rclcpp_node:
     ros__parameters:
       use_sim_time: True
-
+ 
 map_server:
   ros__parameters:
     use_sim_time: True
     yaml_filename: "maps/arena_map.yaml"
-
+ 
 map_saver:
   ros__parameters:
     use_sim_time: True
     save_map_timeout: 5.0
     free_thresh_default: 0.25
     occupied_thresh_default: 0.65
+ 
 slam_toolbox:
   ros__parameters:
     use_sim_time: True
-
+ 
     solver_plugin: solver_plugins::CeresSolver
     ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
     ceres_preconditioner: SCHUR_JACOBI
     ceres_trust_strategy: LEVENBERG_MARQUARDT
     ceres_dogleg_type: TRADITIONAL_DOGLEG
     ceres_loss_function: None
-
+ 
     odom_frame: odom
     map_frame: map
     base_frame: base_footprint
     scan_topic: /scan
     mode: mapping
-
+ 
     resolution: 0.02
     max_laser_range: 4.0
     min_laser_range: 0.15
     scan_buffer_maximum_scan_distance: 4.0
     scan_buffer_size: 20
-
+ 
     transform_publish_period: 0.02
     map_update_interval: 0.5
     minimum_time_interval: 0.1
     minimum_travel_distance: 0.03
     minimum_travel_heading: 0.03
-
+ 
     use_scan_matching: true
     use_scan_barycenter: true
     distance_variance_penalty: 0.1
@@ -277,7 +274,7 @@ slam_toolbox:
     minimum_distance_penalty: 0.5
     use_response_expansion: true
     do_loop_closing: true
-
+ 
 behavior_server:
   ros__parameters:
     use_sim_time: True
@@ -300,10 +297,10 @@ behavior_server:
     robot_base_frame: base_footprint
     transform_tolerance: 0.5
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.0
+    max_rotational_vel: 1.0             # = WZ_REF
     min_rotational_vel: 0.3
-    rotational_acc_lim: 2.0
-
+    rotational_acc_lim: 1.5
+ 
 smoother_server:
   ros__parameters:
     use_sim_time: True
@@ -313,24 +310,24 @@ smoother_server:
       tolerance: 1.0e-10
       max_its: 1000
       do_refinement: true
-
-
+ 
+# NOTA: estos límites solo tienen efecto si velocity_smoother está en la cadena de
+# /cmd_vel (ver remapeos sugeridos en el launch).
 velocity_smoother:
   ros__parameters:
     use_sim_time: True
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity:    [ 0.30,  0.30,  1.0]
-    min_velocity:    [-0.30, -0.30, -1.0]
-    max_accel:       [ 1.0,   1.0,   2.0]
-    max_decel:       [-1.0,  -1.0,  -2.0]
+    max_velocity:    [ 0.40,  0.40,  1.0]
+    min_velocity:    [-0.40, -0.40, -1.0]
+    max_accel:       [ 0.6,   0.6,   1.5]
+    max_decel:       [-0.6,  -0.6,  -1.5]
     odom_topic: /odom
     odom_duration: 0.1
-    deadband_velocity: [0.001, 0.001, 0.001]
-    velocity_timeout: 1.0
-
-
+    deadband_velocity: [0.002, 0.002, 0.002]
+    velocity_timeout: 0.5               # = cmd_vel_timeout del nodo cinemático
+ 
 collision_monitor:
   ros__parameters:
     use_sim_time: True
@@ -345,7 +342,7 @@ collision_monitor:
     stop_pub_timeout: 2.0
     polygons: []
     observation_sources: []
-
+ 
 waypoint_follower:
   ros__parameters:
     use_sim_time: True
@@ -357,7 +354,7 @@ waypoint_follower:
       plugin: "nav2_waypoint_follower::WaitAtWaypoint"
       enabled: true
       waypoint_pause_duration: 0
-
+ 
 lifecycle_manager:
   ros__parameters:
     use_sim_time: True
