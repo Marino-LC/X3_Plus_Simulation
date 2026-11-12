@@ -1,6 +1,6 @@
 <mujoco model="arena_pid_tuning">
     
-    <compiler angle="radian" autolimits="true">
+    <compiler angle="radian" autolimits="true"/>
     
     <!-- fisicas de la simulacion -->
     <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast"

@@ -84,6 +84,12 @@ def generate_launch_description():
                 '/mono_camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
                 '/mono_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
                 '/imu@sensor_msgs/msg/Imu[gz.msgs.IMU',
+                # Verdad de terreno (plugin OdometryPublisher del URDF), marco del mundo
+                '/ground_truth/odom@nav_msgs/msg/Odometry[gz.msgs.Odometry',
+                # Sensores de contacto de arena_world.world (detección de colisiones)
+                *[f'/contacts/{m}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts'
+                  for m in ('wall_north', 'wall_south', 'wall_east', 'wall_west',
+                            'obstacle_1', 'obstacle_2', 'pedestal')],
         ],
         output='screen'
     )

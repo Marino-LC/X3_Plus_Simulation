@@ -136,9 +136,9 @@ controller_server:
       RotateToGoal.lookahead_time: -1.0
 
 # Footprint: ruedas a lx=0.110 / ly=0.102 desde el centro.
-#   x: lx + r = 0.110 + 0.040 = 0.150 (borde exterior de la rueda)
+#   x delantero: 0.15 ; x trasero: -0.18 (la malla base_link.STL llega a x = -0.176)
 #   y: ly + ~medio ancho de rueda ≈ 0.12
-# Verificar contra el URDF (bumpers, mástil, brazo en HOME).
+# Radio circunscrito = hypot(0.18, 0.12) ≈ 0.216 m -> inflation_radius 0.22.
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -151,7 +151,7 @@ local_costmap:
       width:  2
       height: 2
       resolution: 0.02
-      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.15, -0.12], [-0.15, 0.12] ]"
+      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.18, -0.12], [-0.18, 0.12] ]"
       # (antes había dos claves 'plugins'; YAML se queda con la última y se perdía la primera)
       plugins: ["obstacle_layer", "inflation_layer"]
       obstacle_layer:
@@ -171,7 +171,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 4.0
-        inflation_radius: 0.20          # radio circunscrito ≈ 0.19 m
+        inflation_radius: 0.22          # radio circunscrito ≈ 0.216 m
   local_costmap_client:
     ros__parameters:
       use_sim_time: True
@@ -189,7 +189,7 @@ global_costmap:
       global_frame: map # El valor del global frame no es odom, es map 
       robot_base_frame: base_footprint
       # Mismo footprint que el local (antes: robot_radius 0.15, inconsistente)
-      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.15, -0.12], [-0.15, 0.12] ]"
+      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.18, -0.12], [-0.18, 0.12] ]"
       resolution: 0.02
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -214,7 +214,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 4.0
-        inflation_radius: 0.20
+        inflation_radius: 0.22
   global_costmap_client:
     ros__parameters:
       use_sim_time: True
