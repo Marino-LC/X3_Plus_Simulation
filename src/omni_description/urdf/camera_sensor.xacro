@@ -17,12 +17,12 @@
               <color rgba="0.7 0.7 0.7 1"/>
           </material>
       </visual>
-      <!-- <collision>
+      <collision>
           <origin xyz="0 0 0" rpy="0 0 0"/>
           <geometry>
               <mesh filename="file://$(find omni_description)/meshes/sensor/visual/camera_link.STL"/>
           </geometry>
-      </collision> -->
+      </collision>
   </link>
 
   <joint name="camera_joint" type="fixed">
@@ -39,7 +39,7 @@
       <child link="camera_PC_link"/>
   </joint>
 
-  <!-- <gazebo reference="camera_link">
+  <gazebo reference="camera_link">
     <sensor type="rgbd_camera" name="camera">
       <always_on>true</always_on>
       <update_rate>30.0</update_rate>
@@ -64,7 +64,7 @@
         </depth_camera>
       </camera>
     </sensor>
-  </gazebo> -->
+  </gazebo>
  
 
 </robot>
