@@ -121,10 +121,10 @@ class WaypointRunner(Node):
         self.declare_parameter("yaw_tol", 0.15)       # rad, contra verdad de terreno
         self.declare_parameter("goal_timeout", 60.0)  # s simulados por waypoint
         self.declare_parameter("output_dir", "")
-        self.declare_parameter("set_gains", False)    # si False, no toca el PID
-        self.declare_parameter("kp", 1.949)
-        self.declare_parameter("ki", 0.256)
-        self.declare_parameter("kd", 0.938)
+        self.declare_parameter("set_gains", True)    # si False, no toca el PID
+        self.declare_parameter("kp", 1.949)          # Ganancia Proporcional definitiva
+        self.declare_parameter("ki", 0.256)          # Ganancia Integral definitiva
+        self.declare_parameter("kd", 0.938)          # Ganancia Derivativa definitiva
 
         # ── Clientes / publicadores ───────────────────────────────────────────
         self._pid_client = self.create_client(
