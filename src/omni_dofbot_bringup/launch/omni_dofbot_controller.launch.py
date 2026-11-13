@@ -164,6 +164,23 @@ def generate_launch_description():
         output='screen'
     )
 
+    # ── Nodos de control propios ──────────────────────────────────────────────
+    # Cinemática inversa + PID incremental + modelo de motor
+    kinematic_node = Node(
+        package='omni_dofbot_bringup',
+        executable='mecanum_kinematic_node.py',
+        name='mecanum_kinematic_node',
+        output='screen',
+    )
+
+    # Cinemática directa + odometría (/odom y TF odom -> base_footprint)
+    odometry_node = Node(
+        package='omni_dofbot_bringup',
+        executable='Mecanum_odometry_node.py',
+        name='mecanum_odometry_node',
+        output='screen',
+    )
+
     config_arg = DeclareLaunchArgument(
         name='rvizconfig', default_value=rviz_config_path
     )
@@ -216,6 +233,13 @@ def generate_launch_description():
             event_handler=OnProcessExit(
                 target_action=spawner_jsb,
                 on_exit=[activate_wheels]
+            )
+        ),
+        # 6. Con las ruedas activas, arrancar cinemática y odometría
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=activate_wheels,
+                on_exit=[kinematic_node, odometry_node]
             )
         ),
     ])
