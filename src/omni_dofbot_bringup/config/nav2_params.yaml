@@ -99,25 +99,26 @@ controller_server:
       # ── Límites de velocidad: los validados en la batería P1-P3 ──
       min_vel_x: -0.40
       max_vel_x:  0.40
-      # Gazebo no desplaza lateralmente las mecanum (mallas sin rodillos) -> vy = 0 en simulación.
       # En el robot real (P1y validada a 0.40 m/s) usar:
       #   min_vel_y: -0.40 / max_vel_y: 0.40 / vy_samples: 10 / acc_lim_y: 0.6 / decel_lim_y: -0.6
-      min_vel_y: 0.0
-      max_vel_y: 0.0
+      min_vel_y: -40.0
+      max_vel_y: 40.0
       min_vel_theta: -1.0
       max_vel_theta:  1.0
-      min_speed_xy:   0.10
-      max_speed_xy:   0.40
-      min_speed_theta: 0.30
+      # Velocidad (magnitud) mínima para que el robot se mueva en conjunto (zona muerta de arranque)
+      # Utilizadas los valores de Tesis de Marino en Comparacion entre simulacion y hardware
+      min_speed_xy:   0.20
+      max_speed_xy:   0.40  
+      min_speed_theta: 0.20 
       # ── Aceleraciones: acotadas por motor_tau = 0.58 s (v/tau ≈ 0.4/0.58 ≈ 0.7 m/s²) ──
       acc_lim_x:      0.6
-      acc_lim_y:      0.0
+      acc_lim_y:      0.6
       acc_lim_theta:  1.5
       decel_lim_x:   -0.6
-      decel_lim_y:    0.0
+      decel_lim_y:   -0.6
       decel_lim_theta: -1.5
       vx_samples:     10
-      vy_samples:     1
+      vy_samples:     10
       vtheta_samples: 10
       sim_time: 1.5                      # cubre el retardo del motor (tau)
       linear_granularity: 0.05
