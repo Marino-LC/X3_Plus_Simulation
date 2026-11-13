@@ -1,0 +1,261 @@
+<mujoco model="Omni_bot">
+  <compiler angle="radian"/>
+
+  <option integrator="implicitfast"/>
+
+  <asset>
+    <mesh name="base_link" content_type="model/stl" file="/mnt/c/Maquinas_virtuales/X3_Plus_Simulation/install/omni_description/share/omni_description/meshes/X3/base_link.STL"/>
+    <mesh name="DERECHA" content_type="model/stl" file="/mnt/c/Maquinas_virtuales/X3_Plus_Simulation/install/omni_description/share/omni_description/meshes/X3/DERECHA.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="RODILLO" content_type="model/stl" file="/mnt/c/Maquinas_virtuales/X3_Plus_Simulation/install/omni_description/share/omni_description/meshes/X3/RODILLO.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="IZQUIERDA" content_type="model/stl" file="/mnt/c/Maquinas_virtuales/X3_Plus_Simulation/install/omni_description/share/omni_description/meshes/X3/IZQUIERDA.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="laser_link" content_type="model/stl" file="/mnt/c/Maquinas_virtuales/X3_Plus_Simulation/install/omni_description/share/omni_description/meshes/sensor/visual/laser_link.STL"/>
+    <mesh name="camera_link" content_type="model/stl" file="/mnt/c/Maquinas_virtuales/X3_Plus_Simulation/install/omni_description/share/omni_description/meshes/sensor/visual/camera_link.STL"/>
+  </asset>
+
+  <worldbody>
+    <camera name="vista_general" quat="0.77927 0.496278 0.205565 0.322784" pos="1.5 -1.5 1"/>
+    <light name="sol" pos="0 0 3" type="directional"/>
+    <frame pos="0 0 0.0815">
+      <geom quat="1 0 0 0" type="mesh" rgba="0 0.7 0 1" mesh="base_link"/>
+      <body name="front_left_wheel" pos="0.08 0.084492 -0.0389" quat="0.707282 0.706931 0 0">
+        <inertial pos="-2.25626e-15 -9.32033e-16 -1.8e-05" quat="0.39283 0.58795 -0.39283 0.58795" mass="0.385554" diaginertia="0.000134206 0.000107206 0.000107206"/>
+        <joint name="front_left_joint" actuatorfrcrange="-100 100" limited="false"/>
+        <geom pos="0 0 -0.018536" quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="DERECHA"/>
+        <body name="front_left_roller_1" pos="-0.0285631 -0.0220328 -0.0152372" quat="0.0712296 -0.325163 0.201781 -0.92113">
+          <inertial pos="4.02764e-09 2.9025e-09 0.02119" quat="0.95648 0 0 -0.291798" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_1_joint" damping="0.005" frictionloss="0.001" axis="2.40203e-07 -4.44417e-07 1"/>
+          <geom pos="4.02763e-09 2.90249e-09 1.00032e-05" quat="0.206335 -0.676333 0.206335 0.676333" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_2" pos="-0.00771817 -0.0352381 -0.0152372" quat="0.0398358 0.36952 0.0995053 0.92302">
+          <inertial pos="3.77991e-09 -1.13038e-09 0.02119" quat="1 0 0 -1.12277e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_2_joint" damping="0.005" frictionloss="0.001" axis="4.72188e-07 -3.78114e-07 1"/>
+          <geom pos="3.77991e-09 -1.1304e-09 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_3" pos="0.0167382 -0.0319551 -0.0152372" quat="0.0725131 0.207855 0.321315 0.921029">
+          <inertial pos="6.05475e-09 -1.80244e-09 0.02119" quat="1 0 0 -1.01434e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_3_joint" damping="0.005" frictionloss="0.001" axis="-3.00945e-07 1.08902e-07 1"/>
+          <geom pos="6.05475e-09 -1.80245e-09 0.04237" quat="0 -0.707107 0 -0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_4" pos="0.0333625 -0.01372 -0.0152372" quat="0.00613454 0.0148209 -0.382396 -0.923859">
+          <inertial pos="4.84712e-09 5.06649e-09 0.02119" quat="0.707116 0 0 0.707097" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_4_joint" damping="0.005" frictionloss="0.001" axis="-4.84322e-07 5.85029e-08 1"/>
+          <geom pos="4.84713e-09 5.06649e-09 0.04237" quat="0.5 -0.5 -0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_5" pos="0.0343762 0.0109349 -0.0152372" quat="0.0770459 0.234636 -0.302312 -0.920661">
+          <inertial pos="9.53427e-10 4.98399e-09 0.02119" quat="0.707107 0 0 0.707107" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_5_joint" damping="0.005" frictionloss="0.001" axis="3.45878e-07 3.24538e-07 1"/>
+          <geom pos="9.53443e-10 4.98399e-09 0.04237" quat="0.5 -0.5 -0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_6" pos="0.0193049 0.0304733 -0.0152372" quat="0.0242469 0.378072 -0.0592307 -0.923561">
+          <inertial pos="-3.63155e-09 2.25584e-09 0.02119" quat="0.707118 0 0 0.707095" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_6_joint" damping="0.005" frictionloss="0.001" axis="-4.18471e-07 2.65714e-07 1"/>
+          <geom pos="-3.63154e-09 2.25584e-09 0.04237" quat="0.5 -0.5 -0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_7" pos="-0.00479944 0.0357528 -0.0152372" quat="0.0767222 -0.304157 -0.232239 0.920688">
+          <inertial pos="1.07725e-09 -3.13839e-10 0.02119" quat="1 0 0 2.11176e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_7_joint" damping="0.005" frictionloss="0.001" axis="1.78054e-07 -5.22469e-07 1"/>
+          <geom pos="1.07725e-09 -3.13854e-10 1.00053e-05" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_8" pos="-0.026658 0.0243032 -0.0152372" quat="0.0395379 -0.0987054 -0.369735 0.923033">
+          <inertial pos="-3.24706e-09 -3.64023e-09 0.02119" quat="1 0 0 2.49419e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_8_joint" damping="0.005" frictionloss="0.001" axis="1.61168e-07 -1.15582e-08 1"/>
+          <geom pos="-3.24706e-09 -3.64025e-09 1.00004e-05" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_left_roller_9" pos="-0.036043 0.00148188 -0.0152372" quat="0.0499521 -0.127746 0.360732 -0.922528">
+          <inertial pos="-6.14857e-10 2.02136e-11 0.02119" quat="0.707099 0 0 0.707114" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_left_roller_9_joint" damping="0.005" frictionloss="0.001" axis="-1.59016e-07 -2.99039e-07 1"/>
+          <geom pos="-6.14842e-10 2.02136e-11 1.00049e-05" quat="0.5 0.5 0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <frame pos="0 0 0.0185" quat="0 0.92388 0.382683 0">
+          <geom quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="DERECHA"/>
+        </frame>
+      </body>
+      <body name="front_right_wheel" pos="0.08 -0.0845 -0.0389" quat="9.38418e-07 -9.37953e-07 -0.706931 0.707282">
+        <inertial pos="-2.23589e-15 9.2553e-16 -1.8e-05" quat="0.587912 0.392886 -0.587912 0.392886" mass="0.385554" diaginertia="0.000134206 0.000107206 0.000107206"/>
+        <joint name="front_right_joint" actuatorfrcrange="-100 100" limited="false"/>
+        <geom pos="0 0 -0.018536" quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="IZQUIERDA"/>
+        <body name="front_right_roller_1" pos="0.00479886 0.0357529 -0.0152372" quat="0.0767222 -0.304157 0.232239 -0.920688">
+          <inertial pos="3.94414e-11 2.84448e-09 0.02119" quat="0.999443 0 0 0.0333634" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_1_joint" damping="0.005" frictionloss="0.001" axis="-1.78054e-07 -5.22469e-07 1"/>
+          <geom pos="3.94403e-11 2.8445e-09 9.99615e-06" quat="0.706713 -0.0235809 0.706713 0.0235809" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_2" pos="-0.0193054 0.030473 -0.0152372" quat="0.0242469 0.378072 0.0592307 0.923561">
+          <inertial pos="-5.99541e-09 1.30676e-09 0.02119" quat="1 0 0 1.32375e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_2_joint" damping="0.005" frictionloss="0.001" axis="4.18471e-07 2.65714e-07 1"/>
+          <geom pos="-5.99541e-09 1.30675e-09 9.99993e-06" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_3" pos="-0.0343764 0.0109344 -0.0152372" quat="0.0770459 0.234636 0.302312 0.920661">
+          <inertial pos="-3.20145e-09 6.13375e-10 0.02119" quat="0.698725 0 0 0.71539" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_3_joint" damping="0.005" frictionloss="0.001" axis="-3.45878e-07 3.24538e-07 1"/>
+          <geom pos="-3.20147e-09 6.13374e-10 0.04237" quat="0.494064 0.505866 -0.494064 0.505866" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_4" pos="-0.0333623 -0.0137205 -0.0152372" quat="0.00613454 0.0148209 0.382396 0.923859">
+          <inertial pos="-1.20461e-09 -1.57521e-09 0.02119" quat="0.929328 0 0 0.369256" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_4_joint" damping="0.005" frictionloss="0.001" axis="4.84322e-07 5.85029e-08 1"/>
+          <geom pos="-1.2046e-09 -1.57522e-09 0.04237" quat="0.261111 -0.657131 -0.261111 -0.657131" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_5" pos="-0.0167377 -0.0319554 -0.0152372" quat="0.0725131 0.207855 -0.321315 -0.921029">
+          <inertial pos="7.55297e-10 -2.57479e-09 0.02119" quat="1 0 0 -1.32693e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_5_joint" damping="0.005" frictionloss="0.001" axis="3.00945e-07 1.08902e-07 1"/>
+          <geom pos="7.55297e-10 -2.5748e-09 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_6" pos="0.00771876 -0.035238 -0.0152372" quat="0.0398358 0.36952 -0.0995053 -0.92302">
+          <inertial pos="5.14106e-09 1.00196e-09 0.02119" quat="1 0 0 -1.07176e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_6_joint" damping="0.005" frictionloss="0.001" axis="-4.72188e-07 -3.78114e-07 1"/>
+          <geom pos="5.14106e-09 1.00195e-09 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_7" pos="0.0285635 -0.0220324 -0.0152372" quat="0.0712296 -0.325163 -0.201781 0.92113">
+          <inertial pos="2.08758e-09 -9.12509e-10 0.02119" quat="1 0 0 -1.05261e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_7_joint" damping="0.005" frictionloss="0.001" axis="-2.40203e-07 -4.44417e-07 1"/>
+          <geom pos="2.08758e-09 -9.12524e-10 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_8" pos="0.036043 0.00148247 -0.0152372" quat="0.0499521 -0.127746 -0.360732 0.922528">
+          <inertial pos="5.82925e-09 1.44811e-09 0.02119" quat="1 0 0 1.38115e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_8_joint" damping="0.005" frictionloss="0.001" axis="1.59016e-07 -2.99039e-07 1"/>
+          <geom pos="5.82925e-09 1.44809e-09 9.99731e-06" quat="0 0.707107 0 -0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="front_right_roller_9" pos="0.0266577 0.0243037 -0.0152372" quat="0.0395379 -0.0987054 0.369735 -0.923033">
+          <inertial pos="-2.21705e-09 5.94174e-09 0.02119" quat="1 0 0 1.35563e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="front_right_roller_9_joint" damping="0.005" frictionloss="0.001" axis="-1.61168e-07 -1.15582e-08 1"/>
+          <geom pos="-2.21705e-09 5.94172e-09 1.00006e-05" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <frame pos="0 0 0.0185" quat="0 0.92388 -0.382683 0">
+          <geom quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="IZQUIERDA"/>
+        </frame>
+      </body>
+      <body name="back_right_wheel" pos="-0.08 -0.0845 -0.03946" quat="9.38559e-07 -9.37812e-07 -0.706825 0.707388">
+        <inertial pos="-2.25626e-15 -9.32033e-16 -1.8e-05" quat="0.39283 0.58795 -0.39283 0.58795" mass="0.385554" diaginertia="0.000134206 0.000107206 0.000107206"/>
+        <joint name="back_right_joint" actuatorfrcrange="-100 100" limited="false"/>
+        <geom pos="0 0 -0.018536" quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="DERECHA"/>
+        <body name="back_right_roller_1" pos="-0.0285631 -0.0220328 -0.0152372" quat="0.0712296 -0.325163 0.201781 -0.92113">
+          <inertial pos="4.02764e-09 2.9025e-09 0.02119" quat="0.95648 0 0 -0.291798" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_1_joint" damping="0.005" frictionloss="0.001" axis="2.40203e-07 -4.44417e-07 1"/>
+          <geom pos="4.02763e-09 2.90249e-09 1.00032e-05" quat="0.206335 -0.676333 0.206335 0.676333" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_2" pos="-0.00771817 -0.0352381 -0.0152372" quat="0.0398358 0.36952 0.0995053 0.92302">
+          <inertial pos="3.77991e-09 -1.13038e-09 0.02119" quat="1 0 0 -1.12277e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_2_joint" damping="0.005" frictionloss="0.001" axis="4.72188e-07 -3.78114e-07 1"/>
+          <geom pos="3.77991e-09 -1.1304e-09 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_3" pos="0.0167382 -0.0319551 -0.0152372" quat="0.0725131 0.207855 0.321315 0.921029">
+          <inertial pos="6.05475e-09 -1.80244e-09 0.02119" quat="1 0 0 -1.01434e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_3_joint" damping="0.005" frictionloss="0.001" axis="-3.00945e-07 1.08902e-07 1"/>
+          <geom pos="6.05475e-09 -1.80245e-09 0.04237" quat="0 -0.707107 0 -0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_4" pos="0.0333625 -0.01372 -0.0152372" quat="0.00613454 0.0148209 -0.382396 -0.923859">
+          <inertial pos="4.84712e-09 5.06649e-09 0.02119" quat="0.707116 0 0 0.707097" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_4_joint" damping="0.005" frictionloss="0.001" axis="-4.84322e-07 5.85029e-08 1"/>
+          <geom pos="4.84713e-09 5.06649e-09 0.04237" quat="0.5 -0.5 -0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_5" pos="0.0343762 0.0109349 -0.0152372" quat="0.0770459 0.234636 -0.302312 -0.920661">
+          <inertial pos="9.53427e-10 4.98399e-09 0.02119" quat="0.707107 0 0 0.707107" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_5_joint" damping="0.005" frictionloss="0.001" axis="3.45878e-07 3.24538e-07 1"/>
+          <geom pos="9.53443e-10 4.98399e-09 0.04237" quat="0.5 -0.5 -0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_6" pos="0.0193049 0.0304733 -0.0152372" quat="0.0242469 0.378072 -0.0592307 -0.923561">
+          <inertial pos="-3.63155e-09 2.25584e-09 0.02119" quat="0.707118 0 0 0.707095" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_6_joint" damping="0.005" frictionloss="0.001" axis="-4.18471e-07 2.65714e-07 1"/>
+          <geom pos="-3.63154e-09 2.25584e-09 0.04237" quat="0.5 -0.5 -0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_7" pos="-0.00479944 0.0357528 -0.0152372" quat="0.0767222 -0.304157 -0.232239 0.920688">
+          <inertial pos="1.07725e-09 -3.13839e-10 0.02119" quat="1 0 0 2.11176e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_7_joint" damping="0.005" frictionloss="0.001" axis="1.78054e-07 -5.22469e-07 1"/>
+          <geom pos="1.07725e-09 -3.13854e-10 1.00053e-05" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_8" pos="-0.026658 0.0243032 -0.0152372" quat="0.0395379 -0.0987054 -0.369735 0.923033">
+          <inertial pos="-3.24706e-09 -3.64023e-09 0.02119" quat="1 0 0 2.49419e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_8_joint" damping="0.005" frictionloss="0.001" axis="1.61168e-07 -1.15582e-08 1"/>
+          <geom pos="-3.24706e-09 -3.64025e-09 1.00004e-05" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_right_roller_9" pos="-0.036043 0.00148188 -0.0152372" quat="0.0499521 -0.127746 0.360732 -0.922528">
+          <inertial pos="-6.14857e-10 2.02136e-11 0.02119" quat="0.707099 0 0 0.707114" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_right_roller_9_joint" damping="0.005" frictionloss="0.001" axis="-1.59016e-07 -2.99039e-07 1"/>
+          <geom pos="-6.14842e-10 2.02136e-11 1.00049e-05" quat="0.5 0.5 0.5 -0.5" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <frame pos="0 0 0.0185" quat="0 0.92388 0.382683 0">
+          <geom quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="DERECHA"/>
+        </frame>
+      </body>
+      <body name="back_left_wheel" pos="-0.08 0.084492 -0.03954" quat="0.707282 0.706931 0 0">
+        <inertial pos="-2.23589e-15 9.2553e-16 -1.8e-05" quat="0.587912 0.392886 -0.587912 0.392886" mass="0.385554" diaginertia="0.000134206 0.000107206 0.000107206"/>
+        <joint name="back_left_joint" actuatorfrcrange="-100 100" limited="false"/>
+        <geom pos="0 0 -0.018536" quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="IZQUIERDA"/>
+        <body name="back_left_roller_1" pos="0.00479886 0.0357529 -0.0152372" quat="0.0767222 -0.304157 0.232239 -0.920688">
+          <inertial pos="3.94414e-11 2.84448e-09 0.02119" quat="0.999443 0 0 0.0333634" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_1_joint" damping="0.005" frictionloss="0.001" axis="-1.78054e-07 -5.22469e-07 1"/>
+          <geom pos="3.94403e-11 2.8445e-09 9.99615e-06" quat="0.706713 -0.0235809 0.706713 0.0235809" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_2" pos="-0.0193054 0.030473 -0.0152372" quat="0.0242469 0.378072 0.0592307 0.923561">
+          <inertial pos="-5.99541e-09 1.30676e-09 0.02119" quat="1 0 0 1.32375e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_2_joint" damping="0.005" frictionloss="0.001" axis="4.18471e-07 2.65714e-07 1"/>
+          <geom pos="-5.99541e-09 1.30675e-09 9.99993e-06" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_3" pos="-0.0343764 0.0109344 -0.0152372" quat="0.0770459 0.234636 0.302312 0.920661">
+          <inertial pos="-3.20145e-09 6.13375e-10 0.02119" quat="0.698725 0 0 0.71539" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_3_joint" damping="0.005" frictionloss="0.001" axis="-3.45878e-07 3.24538e-07 1"/>
+          <geom pos="-3.20147e-09 6.13374e-10 0.04237" quat="0.494064 0.505866 -0.494064 0.505866" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_4" pos="-0.0333623 -0.0137205 -0.0152372" quat="0.00613454 0.0148209 0.382396 0.923859">
+          <inertial pos="-1.20461e-09 -1.57521e-09 0.02119" quat="0.929328 0 0 0.369256" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_4_joint" damping="0.005" frictionloss="0.001" axis="4.84322e-07 5.85029e-08 1"/>
+          <geom pos="-1.2046e-09 -1.57522e-09 0.04237" quat="0.261111 -0.657131 -0.261111 -0.657131" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_5" pos="-0.0167377 -0.0319554 -0.0152372" quat="0.0725131 0.207855 -0.321315 -0.921029">
+          <inertial pos="7.55297e-10 -2.57479e-09 0.02119" quat="1 0 0 -1.32693e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_5_joint" damping="0.005" frictionloss="0.001" axis="3.00945e-07 1.08902e-07 1"/>
+          <geom pos="7.55297e-10 -2.5748e-09 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_6" pos="0.00771876 -0.035238 -0.0152372" quat="0.0398358 0.36952 -0.0995053 -0.92302">
+          <inertial pos="5.14106e-09 1.00196e-09 0.02119" quat="1 0 0 -1.07176e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_6_joint" damping="0.005" frictionloss="0.001" axis="-4.72188e-07 -3.78114e-07 1"/>
+          <geom pos="5.14106e-09 1.00195e-09 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_7" pos="0.0285635 -0.0220324 -0.0152372" quat="0.0712296 -0.325163 -0.201781 0.92113">
+          <inertial pos="2.08758e-09 -9.12509e-10 0.02119" quat="1 0 0 -1.05261e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_7_joint" damping="0.005" frictionloss="0.001" axis="-2.40203e-07 -4.44417e-07 1"/>
+          <geom pos="2.08758e-09 -9.12524e-10 0.04237" quat="0 0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_8" pos="0.036043 0.00148247 -0.0152372" quat="0.0499521 -0.127746 -0.360732 0.922528">
+          <inertial pos="5.82925e-09 1.44811e-09 0.02119" quat="1 0 0 1.38115e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_8_joint" damping="0.005" frictionloss="0.001" axis="1.59016e-07 -2.99039e-07 1"/>
+          <geom pos="5.82925e-09 1.44809e-09 9.99731e-06" quat="0 0.707107 0 -0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <body name="back_left_roller_9" pos="0.0266577 0.0243037 -0.0152372" quat="0.0395379 -0.0987054 0.369735 -0.923033">
+          <inertial pos="-2.21705e-09 5.94174e-09 0.02119" quat="1 0 0 1.35563e-05" mass="0.00576771" diaginertia="6.45725e-07 6.45725e-07 1.5525e-07"/>
+          <joint name="back_left_roller_9_joint" damping="0.005" frictionloss="0.001" axis="-1.61168e-07 -1.15582e-08 1"/>
+          <geom pos="-2.21705e-09 5.94172e-09 1.00006e-05" quat="0 -0.707107 0 0.707107" type="mesh" rgba="0.2 0.2 0.2 1" mesh="RODILLO"/>
+        </body>
+        <frame pos="0 0 0.0185" quat="0 0.92388 -0.382683 0">
+          <geom quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="IZQUIERDA"/>
+        </frame>
+      </body>
+      <frame pos="0.0435 5.25827e-05 0.11">
+        <geom quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="laser_link"/>
+      </frame>
+      <frame pos="0.057105 1.7948e-05 0.03755">
+        <geom quat="1 0 0 0" type="mesh" rgba="0.7 0.7 0.7 1" mesh="camera_link"/>
+        <frame quat="0.500398 -0.5 0.499602 -0.5"/>
+      </frame>
+      <frame pos="-0.06 0.01 0.01" quat="3.27596e-05 -0.707073 0.707141 3.27564e-05"/>
+    </frame>
+    <geom name="suelo" size="5 5 0.1" type="plane" rgba="0.8 0.8 0.8 1"/>
+  </worldbody>
+
+  <actuator>
+    <general name="motor_front_left" joint="front_left_joint" ctrlrange="-25 25" forcerange="-100 100" input="vel" biastype="affine" gainprm="0.05" biasprm="0 0 -0.05"/>
+    <general name="motor_front_right" joint="front_right_joint" ctrlrange="-25 25" forcerange="-100 100" input="vel" biastype="affine" gainprm="0.05" biasprm="0 0 -0.05"/>
+    <general name="motor_back_right" joint="back_right_joint" ctrlrange="-25 25" forcerange="-100 100" input="vel" biastype="affine" gainprm="0.05" biasprm="0 0 -0.05"/>
+    <general name="motor_back_left" joint="back_left_joint" ctrlrange="-25 25" forcerange="-100 100" input="vel" biastype="affine" gainprm="0.05" biasprm="0 0 -0.05"/>
+  </actuator>
+
+  <sensor>
+    <jointpos joint="front_left_joint" name="pos_front_left"/>
+    <jointpos joint="front_right_joint" name="pos_front_right"/>
+    <jointpos joint="back_right_joint" name="pos_back_right"/>
+    <jointpos joint="back_left_joint" name="pos_back_left"/>
+    <jointvel joint="front_left_joint" name="vel_front_left"/>
+    <jointvel joint="front_right_joint" name="vel_front_right"/>
+    <jointvel joint="back_right_joint" name="vel_back_right"/>
+    <jointvel joint="back_left_joint" name="vel_back_left"/>
+  </sensor>
+</mujoco>

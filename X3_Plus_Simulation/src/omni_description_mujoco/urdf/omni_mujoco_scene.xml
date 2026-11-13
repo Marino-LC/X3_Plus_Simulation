@@ -1,0 +1,5 @@
+<!-- Escena: se inyecta dentro de <worldbody>. -->
+<light name="sol" pos="0 0 3" dir="0 0 -1" directional="true"/>
+<geom name="suelo" type="plane" size="5 5 0.1" rgba="0.8 0.8 0.8 1"
+      friction="1 0.005 0.0001"/>
+<camera name="vista_general" pos="1.5 -1.5 1.0" xyaxes="1 1 0 -0.33 0.33 1"/>
