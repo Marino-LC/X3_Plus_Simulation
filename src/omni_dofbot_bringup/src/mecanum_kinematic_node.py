@@ -242,8 +242,8 @@ class PIDController:
     donde err_k1 es el error del ciclo anterior y err_k2 el de dos ciclos
     atrás — igual a err_next/err_last en la nomenclatura del código C.
     """
-
-    def __init__(self, kp: float = 1.0, ki: float = 0.0, kd: float = 0.0,
+    
+    def __init__(self, kp: float = 1.949, ki: float = 0.256, kd: float = 0.938,
                  pwm_max: float = 1000.0, error_deadband: float = 0.0):
         self.kp = kp
         self.ki = ki
