@@ -529,6 +529,9 @@ class WaypointRunner(Node):
             "world": WORLD_NAME,
             "pos_tol": self.get_parameter("pos_tol").value,
             "yaw_tol": self.get_parameter("yaw_tol").value,
+            # Ganancias aplicadas por este nodo; None = no se tocaron (las del nodo PID)
+            "pid_gains": ({k: self.get_parameter(k).value for k in ("kp", "ki", "kd")}
+                          if self.get_parameter("set_gains").value else None),
             "n_runs": n,
             "n_success": k,
             "success_rate": k / n if n else None,

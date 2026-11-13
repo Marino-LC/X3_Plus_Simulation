@@ -2,7 +2,13 @@
 
 Simulación del manipulador móvil omnidireccional **X3 Plus + Dofbot** en ROS 2 Jazzy y Gazebo Harmonic, con navegación autónoma (Nav2) sobre una arena de 2.7 × 2.7 m.
 
-Esta rama prepara los experimentos del **Artículo 1 (navegación y SLAM)**: N ≥ 20 corridas por simulador sobre una ruta de 6 waypoints, comparando Gazebo contra MuJoCo.
+Esta rama prepara los experimentos del **Artículo 1 (navegación y SLAM)**: N ≥ 20 corridas en Gazebo sobre una ruta de 6 waypoints.
+
+### Alcance y supuestos
+
+- **Las métricas de navegación se obtienen solo en Gazebo.** Se descartó la comparación Gazebo vs MuJoCo para navegación por no ser realista ni práctica; las métricas de discrepancia entre simuladores (diferencia relativa y DTW) quedan fuera del alcance.
+- **La cinemática del robot y los actuadores de las ruedas se consideran homologados** con el robot real. Esa homologación (modelo del motor, PID del firmware y sintonización) es el trabajo de la rama `Ruedas_mechanum` y aquí se toma como dada.
+- **Los resultados se reportan con las ganancias del PID obtenidas por algoritmos genéticos** en la rama `Ruedas_mechanum` (`ag_motion_tests.py`). Hay que pasarlas explícitamente al ejecutor de corridas; ver [Ganancias del PID](#ganancias-del-pid).
 
 > **Estado de validación.** Los cambios del commit `1a41b8d` (mapa, TF, verdad de terreno, colisiones y ejecutor de corridas) se revisaron solo de forma estática: sintaxis de Python, XML y YAML. **Todavía no se han ejecutado en ROS 2 / Gazebo.** La primera prueba debe seguir la sección [Verificación de la primera prueba](#5-verificación-de-la-primera-prueba).
 
@@ -111,8 +117,16 @@ ros2 launch omni_dofbot_bringup nav2_arena.launch.py
 **Terminal 5 — corridas.** Empieza con dos corridas de prueba; para el experimento usa `runs:=20` o más.
 
 ```bash
-ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=2
+ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=2 -p set_gains:=true -p kp:=1.949 -p ki:=0.256 -p kd:=0.938
 ```
+
+### Ganancias del PID
+
+Los resultados deben reportarse con las ganancias del algoritmo genético, y eso **no ocurre por defecto**:
+
+- `mecanum_kinematic_node.py` arranca con `kp = 1.0`, `ki = 0.0`, `kd = 0.0`.
+- El ejecutor solo cambia las ganancias si se lanza con `set_gains:=true`; en ese caso las deja registradas en `results.json`.
+- Los valores por defecto del ejecutor (1.949, 0.256, 0.938) son los que venían en el código. La rama `Ruedas_mechanum` no tiene confirmado en el repositorio el resultado final del algoritmo genético, y en versiones anteriores del código aparecía otro juego (2.734, 0.335, 0.756). **El equipo de sintonización debe confirmar cuál es el definitivo** antes de las corridas del artículo.
 
 ### Parámetros del ejecutor
 
@@ -123,7 +137,8 @@ ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=2
 | `yaw_tol` | 0.15 | Tolerancia de orientación (rad), contra la pose real |
 | `goal_timeout` | 60.0 | Límite por waypoint, en segundos simulados |
 | `output_dir` | `~/x3_plus_results/<fecha>/` | Carpeta de resultados |
-| `set_gains`, `kp`, `ki`, `kd` | `false` | Si `set_gains` es `true`, fija las ganancias del PID antes de empezar |
+| `set_gains` | `false` | Si es `true`, fija las ganancias del PID antes de empezar |
+| `kp`, `ki`, `kd` | 1.949, 0.256, 0.938 | Ganancias que se aplican cuando `set_gains` es `true` |
 
 ### Resultados
 
@@ -160,16 +175,18 @@ ros2 topic echo /contacts/obstacle_1
 
 ## 6. Estado frente a las métricas del Artículo 1
 
+Todas las métricas se miden en Gazebo. "Implementada" significa que el código existe; ninguna se ha validado aún en ejecución.
+
 | Métrica | Estado | Lo que falta |
 |---|---|---|
-| Tasa de éxito (SR), N ≥ 20, Wilson 95 % | Implementada en Gazebo, sin validar en ejecución | Validar; repetir en MuJoCo |
+| Tasa de éxito (SR), N ≥ 20, Wilson 95 % | Implementada | Validar en ejecución |
 | SPL | Parcial: se registra la longitud real recorrida | Longitud de la ruta más corta de referencia y cálculo del SPL |
 | ATE | Parcial: el CSV guarda pose real, odometría y pose estimada | Script de alineación de marcos y RMSE |
 | Error de seguimiento (transversal y de rumbo) | No implementada | Grabar la ruta planificada (`/plan`) y calcular el error contra la pose real |
-| Tiempo y robustez | Implementada en Gazebo: tiempo de misión, recuperaciones y colisiones | Validar; repetir en MuJoCo |
+| Tiempo y robustez | Implementada: tiempo de misión, recuperaciones y colisiones | Validar en ejecución |
 | Calidad del mapa (IoU, error de pared) | Solo existe el mapa de referencia y los parámetros de `slam_toolbox` | Launch de SLAM, guardado de mapa por corrida, alineación y cálculo |
-| Discrepancia Gazebo vs MuJoCo (diferencia relativa, DTW) | No implementada | Todo el lado MuJoCo y el script de comparación |
 | Costo computacional (RTF, CPU por segundo simulado) | Parcial: RTF por corrida | Medición de CPU; quitar el límite de RTF del mundo o reportarlo como limitado a 1.0 |
+| ~~Discrepancia Gazebo vs MuJoCo~~ | Fuera del alcance | — |
 
 ---
 
@@ -189,7 +206,11 @@ ros2 topic echo /contacts/obstacle_1
 
 **Sin sensor IMU.** El plugin del mundo ya está bien declarado, pero el xacro del IMU sigue comentado, así que `/imu` no publica.
 
-**MuJoCo.** `world_mujoco/arena_pid_tunning.xml` ya se puede leer, pero solo contiene la arena vacía: no hay robot, obstáculos, lidar ni puente a ROS 2.
+**Ganancias del PID sin confirmar.** Ver [Ganancias del PID](#ganancias-del-pid): el nodo de control arranca con ganancias genéricas y el valor final del algoritmo genético no está fijado en el repositorio.
+
+**Homologación tomada como supuesto.** Esta rama no verifica la homologación de cinemática y actuadores; si la discrepancia de `lx` descrita arriba se confirma, afecta a ese supuesto.
+
+**Archivos de MuJoCo.** `world_mujoco/arena_pid_tunning.xml` pertenece a la sintonización del PID y no se usa en navegación.
 
 **Empaquetado.** `package.xml` no declara dependencias y `world_mujoco` no se instala.
 
@@ -198,6 +219,6 @@ ros2 topic echo /contacts/obstacle_1
 ## 8. Trabajo pendiente, en orden
 
 1. **Validar en Gazebo** lo descrito en este documento (sección 5) y corregir lo que falle.
-2. **Launch único con modos** (`sim:=gazebo|mujoco`, `localization:=amcl|slam`) que incluya los nodos de cinemática y odometría, más un launch de `slam_toolbox`.
-3. **Scripts de análisis offline** para SPL, ATE, error de seguimiento, calidad de mapa, DTW y costo computacional, a partir de `results.json` y los CSV.
-4. **Lado MuJoCo**: modelo MJCF del robot con la misma masa, fricción y geometría de ruedas, arena completa, lidar equivalente (1667 rayos, 12 Hz, mismo ruido) y un puente a ROS 2 que exponga `/clock`, `/joint_states`, `/scan`, comandos de rueda, verdad de terreno, contactos y servicio de reset. El resto de la cadena debe quedar idéntico al de Gazebo.
+2. **Confirmar las ganancias del algoritmo genético** y fijarlas como valores por defecto del nodo de control o de un launch.
+3. **Launch único** que incluya los nodos de cinemática y odometría, con modo `localization:=amcl|slam`, más un launch de `slam_toolbox`.
+4. **Scripts de análisis offline** para SPL, ATE, error de seguimiento, calidad de mapa y costo computacional, a partir de `results.json` y los CSV.
