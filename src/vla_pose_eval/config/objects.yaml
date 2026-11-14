@@ -1,0 +1,67 @@
+# Catálogo de objetos y pedestales (guía, sección 3).
+#
+# PUNTO DE REFERENCIA (definido una sola vez): la pose de un objeto es la de su
+# CENTRO GEOMÉTRICO. Las primitivas de SDF tienen su origen en el centro, así
+# que coincide con el origen del modelo en Gazebo. Si se añade un objeto con
+# malla cuyo origen no esté en el centro, hay que declarar `center_offset` y
+# aplicarlo igual en las etiquetas y en la verdad.
+#
+# symmetry_deg: giro mínimo sobre z que deja al objeto igual.
+#   90 = cubo, 180 = caja rectangular, 360 = sin simetría (p. ej. taza con asa),
+#   0  = simetría continua (cilindro, esfera): no se reporta error de yaw.
+#
+# split: en qué partición puede aparecer la variante (train | test | both).
+#   La separación es por ESCENA (semillas, scenes.yaml) y por OBJETO (aquí).
+#
+# Los objetos de abajo son PRIMITIVAS DE EJEMPLO. Sustitúyanlos por los objetos
+# del RS3 (mismas clases y tamaños) antes de generar datos.
+
+reference_point: geometric_center
+
+pedestal:
+  size_xy: [0.15, 0.15]                    # igual que la arena de navegación
+  heights: [0.15, 0.20, 0.25, 0.30]        # todas por encima del plano del LIDAR (~0.12 m, verificar)
+  color: [0.3, 0.3, 0.8]
+  randomize_yaw: true
+
+objects:
+  cubo:
+    shape: box
+    size: [0.04, 0.04, 0.04]
+    symmetry_deg: 90
+    variants:
+      - {name: rojo,  color: [0.85, 0.15, 0.15], split: both}
+      - {name: verde, color: [0.10, 0.75, 0.20], split: train}
+      - {name: azul,  color: [0.15, 0.25, 0.85], split: test}
+  caja:
+    shape: box
+    size: [0.07, 0.035, 0.035]
+    symmetry_deg: 180
+    variants:
+      - {name: amarilla, color: [0.90, 0.80, 0.10], split: both}
+      - {name: naranja,  color: [0.95, 0.50, 0.10], split: train}
+      - {name: morada,   color: [0.55, 0.20, 0.70], split: test}
+  cilindro:
+    shape: cylinder
+    size: [0.025, 0.06]                    # [radio, altura]
+    symmetry_deg: 0
+    variants:
+      - {name: cian,    color: [0.10, 0.75, 0.80], split: both}
+      - {name: magenta, color: [0.85, 0.15, 0.65], split: train}
+      - {name: blanco,  color: [0.90, 0.90, 0.90], split: test}
+
+# Objetos que NO están en la lista de clases a estimar. Una estimación asociada
+# a un distractor cuenta como falso positivo.
+distractors:
+  esfera:
+    shape: sphere
+    size: [0.025]                          # [radio]
+    symmetry_deg: 0
+    variants:
+      - {name: gris, color: [0.50, 0.50, 0.50], split: both}
+  bloque:
+    shape: box
+    size: [0.05, 0.05, 0.02]
+    symmetry_deg: 90
+    variants:
+      - {name: negro, color: [0.10, 0.10, 0.10], split: both}

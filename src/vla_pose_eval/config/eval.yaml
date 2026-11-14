@@ -1,0 +1,69 @@
+# Configuración general de la medición de error de pose (guía, secciones 3-8).
+# Todos los valores marcados "verificar" salen de leer el URDF/SDF del repo y
+# deben confirmarse en simulación antes de reportar resultados.
+
+world_name: vla_pose_arena        # nombre del <world> que genera scene.py
+robot_name: omni_dofbot           # nombre con el que se hace spawn del robot
+
+frames:
+  map: map                        # en esta fase, map == marco del mundo de Gazebo
+  base: base_footprint
+  camera_optical: camera_PC_link  # marco óptico (z al frente) de la RGB-D
+
+# Cámara RGB-D del mástil (omni_description/urdf/camera_sensor.xacro).
+# Modelo nominal: lo usan el planificador de vistas, el estimador oráculo y el
+# modo sin Gazebo (dry-run). En un ensayo real, recon_pass guarda K (de
+# camera_info) y T_base_cam (de TF) por vista, y esos son los que se usan.
+camera:
+  width: 640
+  height: 480
+  hfov: 1.0193                    # rad (~58.4 grados; vertical ~45.5 grados)
+  depth_near: 0.6                 # m, <depth_camera><clip><near>: sin profundidad más cerca
+  depth_far: 8.0
+  # camera_link en base_footprint: base_joint z=0.0815 + camera_joint (-0.035, 0, 0.45)
+  xyz_in_base: [-0.035, 0.0, 0.5315]   # verificar con: ros2 run tf2_ros tf2_echo base_footprint camera_PC_link
+  pitch_down_deg: 0.0             # la cámara mira horizontal
+  image_margin_px: 20             # margen para considerar un objeto "en cuadro"
+
+# Tópicos ROS (lado ROS de ros_gz_bridge; ver launch/vla_pose_eval.launch.py).
+topics:
+  rgb: /camera/image
+  depth: /camera/depth_image
+  camera_info: /camera/camera_info
+  robot_pose_gt: /model/omni_dofbot/pose     # PosePublisher de Gazebo (omni_dofbot_vla.xacro)
+  arm_trajectory: /dofbot_trajectory_controller/joint_trajectory
+  estimates: /vla/estimates
+  instruction: /vla/instruction
+  ground_truth: /ground_truth/objects
+  input_rgb: /vla/input/image
+  input_depth: /vla/input/depth
+  input_camera_info: /vla/input/camera_info
+
+arm:
+  joints: [arm_joint_01, arm_joint_02, arm_joint_03, arm_joint_04, arm_joint_05]
+  observation_pose: [0.0, 0.0, -1.57, 0.0, 0.0]   # la del RS3
+  move_time_s: 2.0
+  settle_time_s: 2.0
+
+recon:
+  teleport_z: 0.05                # igual que el AG (ag_motion_tests.py)
+  settle_time_s: 1.0              # tiempo de simulación tras cada teleport
+  capture_timeout_s: 5.0
+  estimate_timeout_s: 30.0        # solo en modo en línea
+
+evaluation:
+  association_threshold_m: 0.15
+  fusion_radius_m: 0.15
+  bootstrap_resamples: 2000
+  distance_bin_m: 0.2
+  view_angle_bin_deg: 30.0
+
+# Metas PROPUESTAS (guía, sección 8); a discutir con el equipo.
+targets:
+  pos_median_m: 0.05
+  pos_p95_m: 0.10
+  yaw_median_deg: 15.0
+  class_accuracy: 0.90
+  recall: 0.90
+  false_positive_rate: 0.05
+  coverage: 1.0

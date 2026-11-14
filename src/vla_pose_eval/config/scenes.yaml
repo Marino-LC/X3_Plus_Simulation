@@ -1,0 +1,42 @@
+# Tipos de escena y particiones (guía, secciones 7 y 8).
+
+arena:
+  size: [2.7, 2.7]                # paredes en +-1.35 m (igual que arena_world / arena_map)
+  wall_height: 0.30
+  wall_thickness: 0.03
+  # Región donde pueden caer pedestales (centro del pedestal).
+  spawn_region: {x: [-1.0, 1.0], y: [-1.1, 1.1]}
+
+placement:
+  min_pedestal_separation_m: 0.35
+  robot_keepout_m: 0.45           # distancia mínima pedestal <-> cualquier vista del robot
+  max_object_offset_m: 0.03       # desplazamiento aleatorio del objeto sobre el pedestal
+  require_visible: true           # reintenta hasta que todo objeto quede en cuadro en >= 1 vista
+  max_attempts: 500
+  static_objects: true            # verdad exacta; poner false cuando haya manipulación (Fase 2)
+
+scene_types:
+  S1: {pedestals: 1, targets: 1, distractors: 0}                 # un pedestal
+  S2: {pedestals: 3, targets: 3, distractors: 0}                 # tres pedestales
+  S3: {pedestals: 5, targets: 3, distractors: 1}                 # cinco: 3 objetos, 1 distractor, 1 vacío
+
+# Aleatorización de dominio (luz, colores de fondo). Las texturas reales quedan
+# pendientes (sección 7 de la guía).
+appearance:
+  randomize: true
+  sun_intensity: [0.6, 1.0]
+  ambient: [0.35, 0.6]
+  floor_colors:
+    - [0.92, 0.87, 0.78]
+    - [0.75, 0.75, 0.75]
+    - [0.60, 0.50, 0.40]
+  wall_colors:
+    - [0.70, 0.70, 0.70]
+    - [0.85, 0.85, 0.80]
+    - [0.45, 0.50, 0.55]
+
+# Separación entrenamiento/prueba POR ESCENA: rangos de semillas disjuntos
+# [inicio, fin). La prueba usa semillas fijas.
+splits:
+  test:  {seeds: [0, 20]}
+  train: {seeds: [1000, 1200]}

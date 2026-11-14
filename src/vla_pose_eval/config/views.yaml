@@ -1,0 +1,16 @@
+# Pasada de reconocimiento: lista fija de vistas (guía, sección 4).
+#
+# El robot se teletransporta a cada (x, y) del eje largo de la arena (eje Y,
+# el mismo hacia el que apunta el robot en el AG) y gira en pasos de 45 grados.
+# FOV horizontal ~58 grados: pasos de 45 dejan ~13 grados de traslape.
+#
+# Se puede dar la lista explícita con `views: [{x:, y:, yaw_deg:}, ...]`; si
+# existe, tiene prioridad sobre la rejilla.
+
+grid:
+  positions:
+    - {x: 0.0, y: -0.8}
+    - {x: 0.0, y: 0.0}
+    - {x: 0.0, y: 0.8}
+  yaw_step_deg: 45
+  yaw_start_deg: 90               # primera vista mirando a +Y

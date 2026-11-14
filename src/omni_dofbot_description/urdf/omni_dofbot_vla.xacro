@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<!--
+  Robot para la medición de error de pose (paquete vla_pose_eval).
+
+  Es el mismo robot que omni_dofbot_trajectory_controller.xacro más el sistema
+  PosePublisher de Gazebo, que publica la pose REAL del modelo (base_footprint
+  en el marco del mundo) en el tópico gz /model/<nombre>/pose. Esa pose es la
+  verdad de referencia del robot en cada vista; no se usa la odometría.
+
+  No modifica el robot de los demás launch.
+-->
+<robot name="robot_scara" xmlns:xacro="http://ros.org/wiki/xacro">
+
+    <xacro:include filename="$(find omni_dofbot_description)/urdf/omni_dofbot_trajectory_controller.xacro"/>
+
+    <gazebo>
+        <plugin filename="gz-sim-pose-publisher-system" name="gz::sim::systems::PosePublisher">
+            <publish_model_pose>true</publish_model_pose>
+            <publish_nested_model_pose>true</publish_nested_model_pose>
+            <publish_link_pose>false</publish_link_pose>
+            <publish_collision_pose>false</publish_collision_pose>
+            <publish_visual_pose>false</publish_visual_pose>
+            <publish_sensor_pose>false</publish_sensor_pose>
+            <use_pose_vector_msg>false</use_pose_vector_msg>
+            <update_frequency>30</update_frequency>
+        </plugin>
+    </gazebo>
+
+</robot>
