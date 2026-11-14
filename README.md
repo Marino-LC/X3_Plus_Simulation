@@ -16,7 +16,7 @@ para ejecutarlas.
 | Parte | Estado |
 |---|---|
 | Modelo con rodillos libres, actuadores, masa 4.8 kg | Implementado |
-| Arena equivalente a `arena_pid_tuning.world` | Implementada |
+| Arena de 2.42 × 2.42 m (mismos materiales que `arena_pid_tuning.world`) | Implementada |
 | T1–T5, T7, T8, T9 (sin ROS) | **Pasan** con los parámetros de partida (resultados abajo) |
 | Puente ROS 2 (`mujoco_bridge_node.py`) y launch | Escritos, **sin probar con ROS 2** (el entorno donde se generó no tiene ROS) |
 | T6, T10, AG de humo y AG completo | Pendientes: requieren ROS 2 + Gazebo (protocolo abajo) |
@@ -113,14 +113,19 @@ Notas:
 | Elemento | Gazebo | MuJoCo |
 |---|---|---|
 | Gravedad, paso | 9.81 m/s², 0.001 s | igual |
-| Piso | caja 1.22 × 2.42 m, μ = 0.68 (μ2 = 0.4) | plano con μ = 0.68; sin μ2 |
+| Piso | caja con μ = 0.68 (μ2 = 0.4) | 2.42 × 2.42 m, plano con μ = 0.68; sin μ2 |
 | Paredes | 0.30 m de alto, 0.03 m de espesor, μ = 0.5 | cuatro cajas estáticas |
 | Pose de reinicio | (0, 0, 0.05), yaw = π/2 | igual |
 | Marcadores | (0,0), (0,0.8), (0.35,0.8) | solo visuales |
 
-La guía menciona 2.42 × 2.42 m, pero `arena_pid_tuning.world` mide 1.22 × 2.42 m.
-Se usó el mundo de Gazebo, como indica la propia guía. Para cambiarlo:
-`build_model.py --arena_x 2.42`.
+La arena mide **2.42 × 2.42 m**. El AG sintoniza con movimiento en x, y y yaw:
+la prueba P4 recorre 0.80 m en lateral desde el origen (hacia −X del mundo, con
+el robot en yaw = π/2), y eso no cabe en una arena de 1.22 m de ancho. Con
+2.42 m quedan unos 0.28 m entre el robot y la pared al final de P4.
+
+El `arena_pid_tuning.world` que está en este repositorio todavía mide
+1.22 × 2.42 m: para que T10 compare lo mismo, Gazebo debe usar un mundo de
+2.42 × 2.42 m. Las dimensiones se cambian con `build_model.py --arena_x ... --arena_y ...`.
 
 ### Interfaces ROS 2 del puente
 
@@ -307,21 +312,21 @@ Si MuJoCo responde más lento o con sobrepaso, ajustar `--wheel_kv` y
 
 ### T10. Equivalencia con Gazebo
 
-Con las mismas ganancias Kp, Ki, Kd en ambos simuladores, correr P1, P2 y P3 y
-grabar:
+Con las mismas ganancias Kp, Ki, Kd en ambos simuladores, correr P1, P2, P3 y
+P4 (lateral) y grabar:
 
 ```bash
 ros2 bag record -o t10_mujoco /odom /ground_truth/odom /cmd_vel /joint_states
 ```
 
-Criterio: curvas vx(t), x(t) y yaw(t) comparables; reportar el RMSE.
+Criterio: curvas vx(t), vy(t), x(t), y(t) y yaw(t) comparables; reportar el RMSE.
 `/ground_truth/odom` solo existe en MuJoCo, así que la comparación directa se
 hace con `/odom`.
 
 ### AG de humo y AG completo
 
-`ag_motion_tests.py` fija el tamaño en dos constantes (`POP_SIZE = 35`,
-`N_GEN = 15`); no tiene parámetros de línea de comandos. Para el AG de humo hay
+`ag_motion_tests.py` fija el tamaño en dos constantes (`POP_SIZE` y `N_GEN`);
+no tiene parámetros de línea de comandos. Para el AG de humo hay
 que ponerlas temporalmente en 8 y 3.
 
 ```bash
@@ -359,7 +364,7 @@ valores candidatos hasta igualar la velocidad en régimen medida.
 - Probar el puente con ROS 2 Jazzy y correr T6, T10 y el AG de humo.
 - Sustituir la masa concentrada del chasis por inercias reales.
 - Confirmar el par máximo del motor (`wheel_max_torque`) y `wheel_kv` con T6.
-- Decidir las dimensiones de la arena (1.22 × 2.42 m frente a 2.42 × 2.42 m).
+- Subir al repositorio el mundo de Gazebo de 2.42 × 2.42 m y las versiones vigentes de `ag_motion_tests.py` (con P4) y `mecanum_kinematic_node.py`; las copias de `src/omni_dofbot_bringup/` son anteriores.
 - El piso es un plano infinito, no una caja; dentro de las paredes es equivalente.
 - La dirección con μ2 = 0.4 de Gazebo no tiene equivalente; se calibra con datos reales.
 - Coordinar con Marino cómo usa el AG `/ground_truth/odom`.

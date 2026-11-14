@@ -51,8 +51,9 @@ class ModelParams:
     integrator: str = "implicitfast"
     cone: str = "elliptic"
     impratio: float = 10.0
-    # --- Arena (equivalente a arena_pid_tuning.world de Gazebo) -----------
-    arena_x: float = 1.22
+    # --- Arena: 2.42 x 2.42 m. El AG sintoniza con x, y y yaw (P4 recorre
+    # 0.80 m en lateral desde el origen), y eso no cabe en 1.22 m de ancho.
+    arena_x: float = 2.42
     arena_y: float = 2.42
     wall_height: float = 0.30
     wall_thickness: float = 0.03
