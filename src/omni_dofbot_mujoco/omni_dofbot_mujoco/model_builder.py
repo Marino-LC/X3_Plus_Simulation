@@ -9,6 +9,8 @@ fija y ruedas de malla) y lo transforma:
   * actuadores: velocidad en ruedas, posición en brazo y gripper
   * <option> de la guía y masa total objetivo
   * mundo: plano vacío o arena equivalente a arena_pid_tuning.world
+  * opcional (params.wheel_mesh / params.roller_collider): mallas de rueda de
+    omni_mujoco2 (DERECHA, IZQUIERDA, RODILLO) como visual y/o collider
 """
 import copy
 import math
@@ -34,6 +36,59 @@ def _f(*v):
     return " ".join(f"{x:.6g}" for x in v)
 
 
+# --- Mallas de rueda de omni_mujoco2 (STL en mm -> escala 0.001) -------------
+OMNI_STL = {"DERECHA": "DERECHA.stl", "IZQUIERDA": "IZQUIERDA.stl",
+            "RODILLO": "RODILLO.stl"}
+
+
+def _check_mesh_params(p):
+    if p.wheel_mesh not in ("hex80", "omni"):
+        raise ValueError(f"wheel_mesh debe ser 'hex80' u 'omni', no {p.wheel_mesh!r}")
+    if p.roller_collider not in ("ellipsoid", "mesh"):
+        raise ValueError("roller_collider debe ser 'ellipsoid' o 'mesh', "
+                         f"no {p.roller_collider!r}")
+
+
+def _needed_meshes(p):
+    """Mallas extra que hay que declarar (y que deben existir en models/assets/)."""
+    names = []
+    if p.wheel_mesh == "omni":
+        names += ["DERECHA", "IZQUIERDA"]
+    if p.wheel_mesh == "omni" or p.roller_collider == "mesh":
+        names.append("RODILLO")
+    return names
+
+
+def _mesh_pose(axis, p):
+    """pos/quat de RODILLO.stl dentro del cuerpo del rodillo.
+
+    En el STL el eje largo es +x y la malla se extiende de x=0 a x=-L (el origen
+    está en una punta; se dedujo de omni_mujoco2.xml). Se gira x -> `axis` con la
+    rotación mínima y se desplaza L/2 para que quede centrada en el cuerpo (el
+    cuerpo está en el centro del rodillo). El barril es de revolución: el giro
+    propio alrededor de su eje no importa."""
+    dx, dy, dz = axis
+    w, x, y, z = 1.0 + dx, 0.0, -dz, dy          # q = (1 + x·d, x × d), x = (1,0,0); se normaliza abajo
+    n = math.sqrt(w * w + x * x + y * y + z * z)
+    h = p.roller_mesh_length / 2
+    return {"pos": _f(h * dx, h * dy, h * dz), "quat": _f(w / n, x / n, y / n, z / n)}
+
+
+def _swap_hub(wheel, diag_pos):
+    """Sustituye la malla 80mm_mecanum_wheel_hex por el cubo de omni_mujoco2:
+    la misma malla dos veces (la segunda volteada), a z=-0.018536 y z=+0.0185.
+    DERECHA va en las ruedas FL y BR (x*y>0); IZQUIERDA en FR y BL."""
+    for g in list(wheel.findall("geom")):
+        if g.get("mesh") == "80mm_mecanum_wheel_hex":
+            wheel.remove(g)
+    mesh, s = ("DERECHA", 1) if diag_pos else ("IZQUIERDA", -1)
+    for pos, quat in (("0 0 -0.018536", "1 0 0 0"),
+                      ("0 0 0.0185", f"0 0.92388 {s * 0.382683:g} 0")):
+        ET.SubElement(wheel, "geom", {"class": "visual", "type": "mesh", "mesh": mesh,
+                                      "pos": pos, "quat": quat,
+                                      "rgba": "0.7 0.7 0.7 1"})
+
+
 def _add_rollers(wheel, name, chir, p):
     """Rodillos en el marco de la rueda (eje de giro = z local)."""
     c45 = math.sqrt(0.5)
@@ -47,7 +102,15 @@ def _add_rollers(wheel, name, chir, p):
                                  p.roller_center_radius * er[1], 0))
         ET.SubElement(b, "joint", {"name": f"{name}_roller_{i + 1}_joint",
                                    "class": "roller", "axis": _f(*axis)})
-        ET.SubElement(b, "geom", {"class": "roller", "zaxis": _f(*axis)})
+        if p.roller_collider == "mesh":
+            ET.SubElement(b, "geom", {"class": "roller", "type": "mesh",
+                                      "mesh": "RODILLO", **_mesh_pose(axis, p)})
+        else:
+            ET.SubElement(b, "geom", {"class": "roller", "zaxis": _f(*axis)})
+        if p.wheel_mesh == "omni":      # rodillo visible; no colisiona ni pesa
+            ET.SubElement(b, "geom", {"class": "visual", "type": "mesh",
+                                      "mesh": "RODILLO", "rgba": "0.2 0.2 0.2 1",
+                                      **_mesh_pose(axis, p)})
 
 
 def _defaults(p):
@@ -108,6 +171,7 @@ def _world(wb, p, world):
 def build_xml(p=None, world="arena", meshdir=None, chassis_mass=1.0):
     """Devuelve el MJCF como string. `world`: 'arena' o 'vacio'."""
     p = p or ModelParams()
+    _check_mesh_params(p)
     src = ET.parse(os.path.join(models_dir(), "x3plus_rodillos_fijos.xml")).getroot()
     root = ET.Element("mujoco", model=f"omni_dofbot_{world}")
     ET.SubElement(root, "compiler", angle="radian",
@@ -119,6 +183,9 @@ def build_xml(p=None, world="arena", meshdir=None, chassis_mass=1.0):
     asset = copy.deepcopy(src.find("asset"))
     for m in asset.iter("mesh"):
         m.set("file", os.path.basename(m.get("file")))
+    for name in _needed_meshes(p):
+        ET.SubElement(asset, "mesh", name=name, file=OMNI_STL[name],
+                      scale="0.001 0.001 0.001")
     root.append(asset)
 
     wb = ET.SubElement(root, "worldbody")
@@ -170,6 +237,8 @@ def build_xml(p=None, world="arena", meshdir=None, chassis_mass=1.0):
             x, y = (float(v) for v in body.get("pos").split()[:2])
             chir = p.roller_sign * (1 if x * y > 0 else -1)
             _add_rollers(body, jn.replace("_joint", ""), chir, p)
+            if p.wheel_mesh == "omni":
+                _swap_hub(body, x * y > 0)
         elif jn in ARM_JOINTS or jn in GRIP_JOINTS:
             j.set("class", "arm" if jn in ARM_JOINTS else "finger")
         else:
@@ -212,14 +281,24 @@ def build_model(p=None, world="arena"):
     return mujoco.MjModel.from_xml_string(build_xml(p, world, md, chassis)), chassis
 
 
+def _suffix(p):
+    """'' con las mallas por defecto de ModelParams (omni_dofbot_arena.xml, que es el
+    que carga el puente); con otra combinación, un sufijo para no pisarlos:
+    omni_dofbot_arena_hex80_ellipsoid.xml, etc."""
+    if (p.wheel_mesh, p.roller_collider) == (ModelParams.wheel_mesh,
+                                             ModelParams.roller_collider):
+        return ""
+    return f"_{p.wheel_mesh}_{p.roller_collider}"
+
+
 def write_models(p=None, out_dir=None):
-    """Escribe models/omni_dofbot_{arena,vacio}.xml (rutas de malla relativas)."""
+    """Escribe models/omni_dofbot_{arena,vacio}[sufijo].xml (rutas de malla relativas)."""
     p = p or ModelParams()
     out_dir = out_dir or models_dir()
     _, chassis = build_model(p, "vacio")
     paths = []
     for world in ("arena", "vacio"):
-        path = os.path.join(out_dir, f"omni_dofbot_{world}.xml")
+        path = os.path.join(out_dir, f"omni_dofbot_{world}{_suffix(p)}.xml")
         with open(path, "w") as f:
             f.write("<!-- GENERADO por scripts/build_model.py. No editar a mano. -->\n")
             f.write(build_xml(p, world, None, chassis) + "\n")

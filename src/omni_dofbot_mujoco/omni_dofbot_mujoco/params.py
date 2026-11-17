@@ -27,6 +27,15 @@ class ModelParams:
     roller_armature: float = 1e-6
     roller_frictionloss: float = 0.0
     roller_sign: int = 1                   # quiralidad; invertir si y sale al revés
+    # --- Mallas de rueda (las de omni_mujoco2 son las de por defecto) ------------
+    # wheel_mesh: "omni"  = cubo DERECHA/IZQUIERDA + 9 RODILLO visibles por rueda
+    #             "hex80" = malla anterior 80mm_mecanum_wheel_hex (solo visual)
+    # roller_collider: "ellipsoid" = calibrado, ver roller_half_length (por defecto)
+    #                  "mesh"      = RODILLO.stl (envolvente convexa; puede dar baches)
+    # Las STL (DERECHA, IZQUIERDA, RODILLO) deben estar en models/assets/.
+    wheel_mesh: str = "omni"
+    roller_collider: str = "ellipsoid"
+    roller_mesh_length: float = 0.04237    # largo de RODILLO.stl [m] (omni_mujoco2.xml)
     # --- Junta de rueda ---------------------------------------------------
     wheel_damping: float = 0.002
     wheel_armature: float = 5e-4
