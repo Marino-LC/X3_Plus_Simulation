@@ -31,7 +31,7 @@ amcl:
     min_particles: 200
     max_particles: 1000
     laser_model_type: "likelihood_field"
-    laser_max_range: 30
+    laser_max_range: 30.0
     laser_min_range: 0.05
     max_beams: 60
     set_initial_pose: true
@@ -67,7 +67,7 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.05          # ~POS_TOL
+      tolerance: 0.05         # ~POS_TOL
       use_astar: true
       allow_unknown: false
 
