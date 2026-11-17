@@ -33,7 +33,7 @@ movimiento resultante:
                   omega_from_pwm (rad/s) — ganancia estática del motor,
                   caracterizada experimentalmente con escalón de PWM
                               │
-                              ▼  FirstOrderLag(tau≈0.46s)
+                              ▼  FirstOrderLag(tau≈0.58s)
                   omega_filtered (rad/s) — dinámica electromecánica real
                               │
                               ▼  [clamp ±max_wheel_vel, por seguridad]
@@ -110,7 +110,7 @@ PUBLICA:
   /wheel_velocity_controller/commands (std_msgs/Float64MultiArray)
 
 SERVICIOS:
-  ~/reset_controller_state (std_srvs/Trigger)
+  ~/reset_controller_state (std_srvs/Empty)
       Reinicia el acumulador PWM del PID incremental y el estado del
       filtro de motor. Debe llamarse junto con ~/reset_pose (de
       mecanum_odometry_node) cada vez que se teleporta el robot, para
@@ -120,7 +120,7 @@ PARÁMETROS (modificables en tiempo de ejecución):
   wheel_radius    : radio de rueda en metros           (default: 0.040)
   lx              : semilongitud robot eje X en metros  (default: 0.110)
   ly              : semiancho robot eje Y en metros     (default: 0.102)
-  max_wheel_vel   : saturación final de seguridad (rad/s) (default: 20.0)
+  max_wheel_vel   : saturación final de seguridad (rad/s) (default: 25.0)
   control_rate    : frecuencia del lazo PID (Hz)        (default: 100.0)
 
   Ganancias PID — dominio mm/s -> PWM, mismas para las 4 ruedas:
@@ -136,7 +136,7 @@ PARÁMETROS (modificables en tiempo de ejecución):
   motor_gain_k    : ganancia estática, rad/s por unidad de PWM
                     (default: PLACEHOLDER — reemplazar con el valor real
                     obtenido de Enc_M1..M4 al escalón de PWM=100)
-  motor_tau       : constante de tiempo del motor (s)   (default: 0.46)
+  motor_tau       : constante de tiempo del motor (s)   (default: 0.5797)
                     0.0 = filtro desactivado.
 
 CONVENCIÓN DE RUEDAS (orden del controlador):
@@ -212,10 +212,10 @@ MOTOR_GAIN_K_DEFAULT = (MOTOR_GAIN_K_DOMINIO_B_MM_S / (1000.0 * 0.040)) / PWM_CM
 # Zona muerta promedio del actuador con carga para movimiento en X
 PWM_BREAKAWAY_X = 18.8 * PWM_CMD_TO_RAW_SCALE # = 376.0 ticks de pwm
 
-# Zona muerta promedio del actuador con carga para movimiento en X
+# Zona muerta promedio del actuador con carga para movimiento en Y
 PWM_BREAKAWAY_Y = 22.2 * PWM_CMD_TO_RAW_SCALE # = 444.0 ticks de pwm
 
-# Zona muerta promedio del actuador con carga para movimiento en X
+# Zona muerta promedio del actuador con carga para rotación (yaw)
 PWM_BREAKAWAY_YAW = 17.6 * PWM_CMD_TO_RAW_SCALE # = 352.0 ticks de pwm
 
 # ── PLACEHOLDER — banda muerta de error, ver nota de diseño #7 abajo ──────
@@ -372,7 +372,7 @@ class MecanumKinematicNode(Node):
         self.declare_parameter('pwm_breakaway_x', PWM_BREAKAWAY_X) # ticks crudos, igual para las 4 ruedas
         self.declare_parameter('pwm_breakaway_y', PWM_BREAKAWAY_Y) # ticks crudos, igual para las 4 ruedas
         self.declare_parameter('pwm_breakaway_yaw', PWM_BREAKAWAY_YAW) # ticks crudos, igual para las 4 ruedas
-        self._breakaway = PWM_BREAKAWAY_X; # umbral vigente, se actualiza con cada cmd_vel
+        self._breakaway = PWM_BREAKAWAY_X # umbral vigente, se actualiza con cada cmd_vel
         self._moving = [False] * 4 # estado de friccion estatica por rueda
 
         # Wachdog de cmd_vel
@@ -438,9 +438,8 @@ class MecanumKinematicNode(Node):
     # ── Callbacks ─────────────────────────────────────────────────────────────
 
     def _cmd_vel_cb(self, msg: Twist):
-        self._last_cmd_time = self.get_clock().now()
-
         """Convierte Twist a velocidades de referencia por rueda (rad/s)."""
+        self._last_cmd_time = self.get_clock().now()
         r  = self.get_parameter('wheel_radius').value
         lx = self.get_parameter('lx').value
         ly = self.get_parameter('ly').value
@@ -550,12 +549,11 @@ class MecanumKinematicNode(Node):
         self._wheel_cmd_pub.publish(msg)
 
     def _on_reset_state(self, request, response):
-        # El periodo del PID queda fijo en ~10ms de simulacion
-        self._last_time = self.get_clock().now()
-
         """Reinicia el acumulador PWM del PID incremental y el estado del
         filtro de motor. Llamar después de cada teleport del robot (junto
         con ~/reset_pose de mecanum_odometry_node)."""
+        # El periodo del PID queda fijo en ~10ms de simulacion
+        self._last_time = self.get_clock().now()
         for pid in self._pids:
             pid.reset()
         for lag in self._motor_lags:

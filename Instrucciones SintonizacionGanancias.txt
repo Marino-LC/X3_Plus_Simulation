@@ -6,7 +6,7 @@ cd ROS2Dev/Wheels_mecanum_ws/
 2. Ejecutar los comandos
 Terminal 1
 srcthis
-ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
+ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py world:=arena_pid_tuning.world
 
 Terminal 2
 srcthis

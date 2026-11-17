@@ -38,7 +38,6 @@ NOTA SOBRE LA POLARIDAD:
 """
 
 import math
-from urllib import response
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time

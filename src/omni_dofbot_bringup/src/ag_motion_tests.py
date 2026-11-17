@@ -9,31 +9,22 @@ Sin Nav2. Sin AMCL. Sin mapa.
 El robot recibe /cmd_vel directo y el fitness se mide con /odom publicado
 por mecanum_odometry_node.py (cinemática directa desde /joint_states).
 
-NOTA DE DISEÑO (limitación física conocida):
-  Las mallas de las ruedas mecanum no modelan los rodillos individuales
-  reales, por lo que el giro de cada rueda es correcto y la odometría
-  interpreta bien el movimiento lateral esperado, pero Gazebo no traslada
-  realmente al robot en el eje Y del cuerpo (no hay deslizamiento lateral
-  físico). Mientras se corrige la física de las ruedas, las pruebas de
-  movimiento se restringen a los dos modos que sí se validaron como
-  correctos en simulación: traslación recta (eje X del cuerpo) y rotación
-  pura (eje Z). La prueba lateral (Y) queda retirada de esta batería.
-
-Pruebas vigentes:
+Pruebas vigentes (fitness = W1·P1 + W2·P2 + W3·P3 + W4·P4):
   P1 — Línea recta: avanza y retrocede en X.
   P2 — Rotación pura: gira +90° y -90° sobre el mismo punto (ida y vuelta).
   P3 — Combinada: avanza en X, gira -90°, avanza en X (nueva orientación).
+  P4 — Lateral: se desplaza a la izquierda y regresa a la derecha en Y.
 
 Tras cada teleport, se llama al servicio ~/reset_pose de mecanum_odometry_node
 para que la odometría acumulada vuelva a (0, 0, π/2), coherente con Gazebo.
 
 EJECUCIÓN
   # T1 — simulación
-  ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
+  ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py world:=arena_pid_tuning.world
   # T2 — cinemática PID
   ros2 run omni_dofbot_bringup mecanum_kinematic_node.py
   # T3 — odometría (lanzar antes del AG)
-  ros2 run omni_dofbot_bringup mecanum_odometry_node.py
+  ros2 run omni_dofbot_bringup Mecanum_odometry_node.py
   # T4 — este nodo
   ros2 run omni_dofbot_bringup ag_motion_tests.py
 
@@ -206,7 +197,7 @@ MAX_ROUNDS               = 10                # tope de seguridad de rondas
 MAX_CONSECUTIVE_DISCARDS = 10                # descartes seguidos en un mismo hueco antes
                                              # de abortar (Gazebo claramente sobrecargado)
 
-W1, W2, W3, W4  = 0.25, 0.20, 0.30, 0.25,    # pesos P1 (recta), P2 (giro), P3 (combinada)
+W1, W2, W3, W4  = 0.25, 0.20, 0.30, 0.25     # pesos P1 (recta), P2 (giro), P3 (combinada), P4 (lateral)
 PENALTY_TO  = 50.0
 
 # ── Brazo Dofbot — coreografía determinista ───────────────────────────────────
@@ -464,6 +455,8 @@ class AGMotionEvaluator(Node):
         wz  = msg.twist.twist.angular.z
 
         with self._lock:
+            self._tipped   = (abs(roll) > ROLL_PITCH_TOL or
+                              abs(pitch) > ROLL_PITCH_TOL)
             self._pose     = Pose2D(msg.pose.pose.position.x,
                                     msg.pose.pose.position.y, yaw)
             self._vel_real = (vx, vy, wz)
@@ -891,8 +884,8 @@ class AGMotionEvaluator(Node):
 
         self._start_arm()
         try:
-            err1, ok1, s1, t1 = self._rotate(+ROT_ANGLE, seg_name="P2_giro_horario")
-            err2, ok2, s2, t2 = self._rotate(-ROT_ANGLE, seg_name="P2_giro_antihorario")
+            err1, ok1, s1, t1 = self._rotate(+ROT_ANGLE, seg_name="P2_giro_antihorario")
+            err2, ok2, s2, t2 = self._rotate(-ROT_ANGLE, seg_name="P2_giro_horario")
         finally:
             self._stop_arm()
 
@@ -957,7 +950,7 @@ class AGMotionEvaluator(Node):
 
         self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
-            self.get_logger().warn("P1: robot volcado tras el teleport — prueba abortada.")
+            self.get_logger().warn("P4: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
 
         self._start_arm()
@@ -1163,7 +1156,7 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3, segs4,
 
 
         # ── Pose deseada vs obtenida: x(t), y(t), yaw(t) ────────────────────────
-        # Se concatenan las pruebas P1+P2+P3 para tener una sola línea de
+        # Se concatenan las pruebas P1+P2+P3+P4 para tener una sola línea de
         # tiempo continua del mejor individuo (cada prueba parte de t=0,
         # así que se suma un offset acumulado para que no se sobrepongan).
         all_segs = (segs1 or []) + (segs2 or []) + (segs3 or []) + (segs4 or [])
@@ -1603,7 +1596,7 @@ def main(args=None):
         results = {
             "config": {
                 "pop_size": POP_SIZE, "n_gen": N_GEN,
-                "dist_x": DIST_X, "dist_return": DIST_RETURN,
+                "dist_x": DIST_X, "dist_y": DIST_Y, "dist_return": DIST_RETURN,
                 "rot_angle_deg": math.degrees(ROT_ANGLE),
                 "vx_ref": VX_REF, "vy_ref": VY_REF, "wz_ref": WZ_REF,
                 "weights": {"P1": W1, "P2": W2, "P3": W3, "P4": W4},

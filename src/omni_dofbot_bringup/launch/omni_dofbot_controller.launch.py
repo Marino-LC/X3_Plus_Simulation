@@ -9,7 +9,7 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch.substitutions import Command
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 
 
 def generate_launch_description():
@@ -23,11 +23,18 @@ def generate_launch_description():
         get_package_share_directory('omni_dofbot_bringup'),
         'rviz', 'omni_dofbot_trayectory_rviz.rviz'
     )
-    world = os.path.join(
-        get_package_share_directory('omni_dofbot_bringup'),
-        'world', 
-        'arena_world.world'  
+    # Mundo seleccionable por argumento:
+    #   - arena_world.world      (default) -> Nav2 / waypoints_nav.py
+    #   - arena_pid_tuning.world           -> sintonización con ag_motion_tests.py
+    world_arg = DeclareLaunchArgument(
+        name='world', default_value='arena_world.world',
+        description='Archivo .world dentro de omni_dofbot_bringup/world'
     )
+    world = PathJoinSubstitution([
+        get_package_share_directory('omni_dofbot_bringup'),
+        'world',
+        LaunchConfiguration('world')
+    ])
 
     workspace_install_dir = os.path.abspath(os.path.join(pkg_omni_desc, '..'))
 
@@ -56,7 +63,7 @@ def generate_launch_description():
                 'launch', 'gz_sim.launch.py'
             )
         ),
-        launch_arguments={'gz_args': f'-r {world}'}.items()
+        launch_arguments={'gz_args': ['-r ', world]}.items()
     )
 
     spawn_entity = Node(
@@ -169,6 +176,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         set_gz_model_path,
+        world_arg,
         config_arg,
         robot_state_publisher_node,
         gazebo,

@@ -44,6 +44,7 @@ Contiene archivos de lanzamiento y configuraciones para el robot Omni Dofbot.
 Archivos Clave:
 - **launch/omni_dofbot_controller.launch.py**: Archivo de lanzamiento para el controlador del omni_dofbot, lanza los controladores para el dofbot y el movil, el robot se visualiza en rviz y gazebo con sus sensores.
 - **rviz/omni_dofbot_trayectory_rviz.rviz**: Configuración de rviz para el Omni Dofbot.
+- **src/ag_motion_tests.py**: Sintonización de las ganancias PID de la base mecanum mediante Algoritmo Genético. Ver [omni_dofbot_bringup/README.md](omni_dofbot_bringup/README.md) para la explicación completa del experimento, las pruebas y la estructura del AG.
 
 ### 6. omni_dofbot_description
 Proporciona la descripción del robot omni_dofbot, incluyendo su URDF y modelos visuales.
