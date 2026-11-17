@@ -19,8 +19,8 @@ def generate_launch_description():
                         'behavior_server', 
                         'bt_navigator', 
                         'waypoint_follower',
-                        'velocity_smoother'
-                        #'collision_monitor'
+                        'velocity_smoother',
+                        'collision_monitor'
                     ]
 
     return LaunchDescription([
@@ -156,13 +156,13 @@ def generate_launch_description():
         # Este nodo se encarga de monitorear la distancia a los obstáculos y generar
         # alertas si el robot se acerca demasiado a ellos.
 
-        #Node(
-        #    package='nav2_collision_monitor',
-        #    executable='collision_monitor',
-        #    name='collision_monitor',
-        #    parameters=[params_file],
-        #    output='screen'
-        #)
+        Node(
+           package='nav2_collision_monitor',
+           executable='collision_monitor',
+           name='collision_monitor',
+           parameters=[params_file],
+           output='screen'
+        )
 
         # NOTA: aquí NO se publica ningún TF base_link <-> base_footprint.
         # El URDF ya define base_footprint -> base_link (base_joint) y lo publica
