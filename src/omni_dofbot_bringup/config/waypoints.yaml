@@ -1,3 +1,8 @@
+# ════════════════════════════════════════════════════════════════════════════
+# LEGADO: solo lo usa ag_tuner.py. NO corresponde al mundo actual
+# (arena_world.world v3 ya no tiene O1/O2 en x=0 ni pedestal). El experimento
+# de navegación usa config/goals.yaml.
+# ════════════════════════════════════════════════════════════════════════════
 # waypoints.yaml — v2
 #
 # Cambios respecto a v1:

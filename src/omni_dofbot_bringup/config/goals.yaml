@@ -1,0 +1,91 @@
+# goals.yaml — experimento de navegación del Artículo 1
+#
+# Cada goal es un EPISODIO INDEPENDIENTE: antes de cada uno el robot vuelve al
+# spawn (teleport + reset de odometría, PID, localización y costmaps) y navega
+# con NavigateToPose directo al goal. Una "corrida" recorre los 5 goals.
+#
+# Coordenadas en el marco del MUNDO de arena_world.world (x este, y norte, m;
+# yaw en rad). Con AMCL el marco map coincide con el mundo; con SLAM el
+# ejecutor transforma los goals al marco del mapa de cada episodio.
+#
+# Los obstáculos NO se definen aquí: el mundo (world/arena_world.world) es la
+# única fuente de verdad, y maps/generate_map.py rasteriza el mapa a partir de él.
+#
+# Vista superior (arena interior de 2.67 × 2.67 m, obstáculos de 0.25 m de alto):
+#
+#        +y
+#   ┌───────────────────────────────┐
+#   │      O4            O5         │
+#   │  (cil.)   G3 ↑        (caja)  │
+#   │ G4 ↑   ▬▬▬▬O3▬▬▬▬             │
+#   │                          G5 ↓ │
+#   │      O1                       │
+#   │    (caja)          O2         │
+#   │ ← G1        S ↑          G2 → │
+#   └───────────────────────────────┘ +x
+
+spawn:
+  x:   0.00
+  y:  -0.91
+  yaw: 1.5708      # mirando al norte; coincide con el reset de la odometría (pi/2)
+
+goals:
+  - id: 1
+    label: "esquina_suroeste"
+    x:  -1.00
+    y:  -0.90
+    yaw: 3.1416
+    note: "Trayecto casi recto hacia el oeste; llegada cerca de dos paredes."
+
+  - id: 2
+    label: "esquina_sureste"
+    x:   0.95
+    y:  -0.85
+    yaw: 0.0
+    note: "Trayecto corto al este, por debajo de O2."
+
+  - id: 3
+    label: "detras_del_muro"
+    x:   0.00
+    y:   0.85
+    yaw: 1.5708
+    note: "Oculto tras el muro O3: obliga a rodearlo por un costado."
+
+  - id: 4
+    label: "pasillo_oeste"
+    x:  -1.00
+    y:   0.25
+    yaw: 1.5708
+    note: "Entre O1, O4 y la pared oeste."
+
+  - id: 5
+    label: "pasillo_este"
+    x:   0.95
+    y:   0.20
+    yaw: -1.5708
+    note: "Entre O2, O5 y la pared este; llegada mirando al sur."
+
+# Huella del robot (igual que nav2_params.yaml) para validar que cada goal es
+# alcanzable: x de -0.18 a 0.15, y de -0.12 a 0.12 (marco base_footprint).
+footprint:
+  x_min: -0.18
+  x_max:  0.15
+  y_half: 0.12
+  inscribed_radius: 0.12   # usado para la ruta más corta de referencia (SPL)
+  goal_clearance: 0.05     # holgura mínima huella-obstáculo exigida en cada goal
+
+arena:
+  world_name: "arena_world"
+  robot_name: "omni_dofbot"
+  # Modelos del mundo con sensor de contacto (tópicos /contacts/<modelo>).
+  # Lo leen el launch (bridge) y waypoints_nav.py (conteo de colisiones).
+  contact_models:
+    - wall_north
+    - wall_south
+    - wall_east
+    - wall_west
+    - obstacle_1
+    - obstacle_2
+    - obstacle_3
+    - obstacle_4
+    - obstacle_5

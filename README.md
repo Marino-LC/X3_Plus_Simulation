@@ -1,51 +1,93 @@
 # X3 Plus Simulation — rama `Nav2`
 
-Simulación del manipulador móvil omnidireccional **X3 Plus + Dofbot** en ROS 2 Jazzy y Gazebo Harmonic, con navegación autónoma (Nav2) sobre una arena de 2.7 × 2.7 m.
+Simulación del manipulador móvil omnidireccional **X3 Plus + Dofbot** en ROS 2 Jazzy y Gazebo Harmonic, con navegación autónoma (Nav2) en una arena de 2.7 × 2.7 m.
 
-Esta rama prepara los experimentos del **Artículo 1 (navegación y SLAM)**: N ≥ 20 corridas en Gazebo sobre una ruta de 6 waypoints.
+Esta rama contiene el experimento del **Artículo 1 (navegación y SLAM)**: N ≥ 20 corridas en Gazebo, cada una con 5 goal poses independientes, medidas con las métricas de la sección 6.
 
 ### Alcance y supuestos
 
 - **Las métricas de navegación se obtienen solo en Gazebo.** Se descartó la comparación Gazebo vs MuJoCo para navegación por no ser realista ni práctica; las métricas de discrepancia entre simuladores (diferencia relativa y DTW) quedan fuera del alcance.
 - **La cinemática del robot y los actuadores de las ruedas se consideran homologados** con el robot real. Esa homologación (modelo del motor, PID del firmware y sintonización) es el trabajo de la rama `Ruedas_mechanum` y aquí se toma como dada.
-- **Los resultados se reportan con las ganancias del PID obtenidas por algoritmos genéticos** en la rama `Ruedas_mechanum` (`ag_motion_tests.py`). Hay que pasarlas explícitamente al ejecutor de corridas; ver [Ganancias del PID](#ganancias-del-pid).
+- **Los resultados se reportan con las ganancias del PID obtenidas por algoritmos genéticos** en la rama `Ruedas_mechanum`: Kp = 1.949, Ki = 0.256, Kd = 0.938. Son los valores por defecto de `mecanum_kinematic_node.py`, y además `waypoints_nav.py` las fija al arrancar y las registra en `results.json`.
 
-> **Estado de validación.** Los cambios del commit `1a41b8d` (mapa, TF, verdad de terreno, colisiones y ejecutor de corridas) se revisaron solo de forma estática: sintaxis de Python, XML y YAML. **Todavía no se han ejecutado en ROS 2 / Gazebo.** La primera prueba debe seguir la sección [Verificación de la primera prueba](#5-verificación-de-la-primera-prueba).
+### Estado de validación
 
-La descripción de los paquetes de descripción del robot (`omni_description`, `dofbot_description`, etc.) está en [`src/README.md`](src/README.md); partes de ese documento describen un estado anterior (Humble, error de `controller_manager`).
+| Parte | Estado |
+|---|---|
+| Cadena Gazebo + Nav2 con AMCL, verdad de terreno, colisiones (commit `1a41b8d`) | Validada en ejecución por el equipo |
+| Ganancias del AG como valores por defecto | Hecho por el equipo |
+| Nodos de cinemática y odometría dentro del launch de simulación | Hecho por el equipo |
+| Nueva arena con 5 obstáculos, 5 goal poses, launch único con `localization:=amcl\|slam`, launch de slam_toolbox, métricas completas en `waypoints_nav.py` | **Revisado solo de forma estática** (sintaxis, y las métricas y gráficas probadas fuera de ROS con datos sintéticos). Falta la primera ejecución en ROS 2 / Gazebo: seguir la [sección 5](#5-verificación-de-la-primera-prueba) |
+
+La descripción de los paquetes del robot (`omni_description`, `dofbot_description`, etc.) está en [`src/README.md`](src/README.md); partes de ese documento describen un estado anterior (Humble, error de `controller_manager`).
 
 ---
 
-## 1. Qué hay en la rama
+## 1. Arena y goal poses
 
-Todo lo relevante para navegación está en `src/omni_dofbot_bringup`.
+![Arena, goals y rutas más cortas](docs/arena_goals.png)
+
+**Obstáculos.** Cinco obstáculos estáticos de **0.25 m de alto**, por encima del haz del LiDAR (~0.19 m del piso), para que AMCL, los costmaps y SLAM los detecten. No hay pedestal ni objetos a manipular.
+
+| Obstáculo | Forma | Centro (m) | Tamaño (m) |
+|---|---|---|---|
+| O1 | caja | (−0.60, −0.20) | 0.30 × 0.30 |
+| O2 | caja | (0.55, −0.35) | 0.20 × 0.20 |
+| O3 | muro | (0.00, 0.35) | 0.70 × 0.10 |
+| O4 | cilindro | (−0.85, 0.80) | radio 0.12 |
+| O5 | caja | (0.80, 0.80) | 0.25 × 0.25 |
+
+**Goal poses.** Cada goal es un **episodio independiente** que arranca desde el spawn (0, −0.91, yaw π/2). La columna "ruta más corta" es la referencia del SPL.
+
+| Goal | Pose (x, y, yaw) | Ruta más corta | Qué evalúa |
+|---|---|---|---|
+| G1 | (−1.00, −0.90, π) | 1.00 m | Trayecto recto; llegada cerca de dos paredes |
+| G2 | (0.95, −0.85, 0) | 0.95 m | Trayecto corto por debajo de O2 |
+| G3 | (0.00, 0.85, π/2) | 2.08 m | Oculto tras el muro O3: obliga a rodearlo |
+| G4 | (−1.00, 0.25, π/2) | 1.68 m | Pasillo entre O1, O4 y la pared oeste |
+| G5 | (0.95, 0.20, −π/2) | 1.53 m | Pasillo entre O2, O5 y la pared este; llegada mirando al sur |
+
+**Dónde se define cada cosa:**
+
+- `world/arena_world.world` es la **única fuente de la geometría**. `maps/generate_map.py` lee de ahí paredes y obstáculos y genera el mapa de referencia (`maps/arena_map.*`), alineado con el mundo.
+- `config/goals.yaml` define el spawn, los 5 goals, la huella del robot y los modelos con sensor de contacto.
+- Al arrancar, `waypoints_nav.py` **valida** cada goal: la huella del robot orientada en el goal debe quedar al menos a 5 cm de cualquier obstáculo, y debe existir ruta desde el spawn. Si un goal no cumple, el ejecutor se detiene con un error que lo indica.
+
+Para cambiar la arena: edita el mundo, ejecuta `python3 src/omni_dofbot_bringup/maps/generate_map.py`, ajusta `goals.yaml` si hace falta y recompila.
+
+---
+
+## 2. Qué hay en la rama
+
+Todo lo relevante está en `src/omni_dofbot_bringup`.
 
 | Componente | Archivo | Función |
 |---|---|---|
-| Simulación | `launch/omni_dofbot_controller.launch.py` | Gazebo con `arena_world.world`, robot en (0, −0.91, yaw π/2), controladores de ruedas, brazo y pinza, y puentes ROS–Gazebo |
-| Control de ruedas | `src/mecanum_kinematic_node.py` | `/cmd_vel` → velocidad por rueda, con PID incremental a 100 Hz que imita el firmware (PWM, ganancia de motor, retardo, umbral de arranque) |
-| Odometría | `src/Mecanum_odometry_node.py` | Integra `/joint_states`; publica `/odom` y el TF `odom → base_footprint`, arrancando en (0, 0, π/2) |
-| Navegación | `launch/nav2_arena.launch.py`, `config/nav2_params.yaml` | map_server, AMCL (modelo omnidireccional), NavFn, DWB con `vy = 0`, behaviors, BT navigator |
-| Ruta | `config/waypoints.yaml` | WP1 (spawn) y WP2–WP6, en coordenadas del mundo |
-| Mapa | `maps/generate_map.py`, `maps/arena_map.*` | Mapa de referencia alineado con el mundo (`map` = mundo de Gazebo) |
-| Ejecutor de corridas | `src/waypoints_nav.py` | Repite la ruta N veces y registra los resultados |
-| Verdad de terreno | `omni_dofbot_description/urdf/omni_dofbot_controllers.xacro` | Plugin `OdometryPublisher` → `/ground_truth/odom` (pose real en el marco del mundo) |
-| Colisiones | `world/arena_world.world` | Sensores de contacto en las 4 paredes, las 2 cajas y el pedestal → `/contacts/<modelo>` |
+| **Launch único** | `launch/arena_nav.launch.py` | Simulación + control + Nav2 en una terminal; elige `localization:=amcl\|slam` |
+| Simulación | `launch/omni_dofbot_controller.launch.py` | Gazebo, robot, controladores, puentes ROS–Gazebo, nodo cinemático y nodo de odometría |
+| Control de ruedas | `src/mecanum_kinematic_node.py` | `/cmd_vel` → velocidad por rueda, con PID incremental a 100 Hz que imita el firmware |
+| Odometría | `src/Mecanum_odometry_node.py` | Integra `/joint_states`; publica `/odom` y el TF `odom → base_footprint` |
+| Navegación | `launch/nav2_arena.launch.py`, `config/nav2_params.yaml` | Nav2 con AMCL + mapa de referencia, o con slam_toolbox |
+| SLAM | `launch/slam_toolbox.launch.py`, `config/slam_toolbox.yaml` | slam_toolbox asíncrono en modo mapping |
+| Experimento | `src/waypoints_nav.py` | Ejecuta los episodios, calcula las métricas y escribe los resultados |
+| Métricas | `omni_dofbot_bringup/nav_metrics.py` | Cálculo de métricas, resumen y gráficas (sin dependencias de ROS) |
+| Verdad de terreno | `omni_dofbot_description/urdf/omni_dofbot_controllers.xacro` | Plugin `OdometryPublisher` → `/ground_truth/odom` |
+| Colisiones | `world/arena_world.world` | Sensores de contacto en paredes y obstáculos → `/contacts/<modelo>` |
 
-### Qué hace el ejecutor de corridas
+`config/waypoints.yaml` queda solo como legado para `ag_tuner.py` y no corresponde al mundo actual.
 
-Por cada corrida, `waypoints_nav.py`:
+### Cadena de velocidad
 
-1. Teletransporta el robot al spawn y reinicia odometría, PID, pose de AMCL (`/initialpose`) y costmaps. Comprueba con la pose real que el reset funcionó.
-2. Envía WP2–WP6 uno por uno con `NavigateToPose`, de modo que el robot se detiene en cada waypoint.
-3. En cada waypoint compara la **pose real** contra el objetivo (0.08 m y 0.15 rad por defecto).
-4. Cuenta colisiones (solo contactos donde participa el robot) y recuperaciones de Nav2.
+```
+controller_server / behavior_server ──cmd_vel_nav──> velocity_smoother ──cmd_vel_smoothed──>
+    collision_monitor ──cmd_vel──> mecanum_kinematic_node
+```
 
-Una corrida es **exitosa** si Nav2 completa los cinco waypoints, la pose real queda dentro de tolerancia en cada uno y no hubo ninguna colisión.
+Es la misma que usa `nav2_bringup` en Jazzy. Con `use_collision_monitor:=false`, el velocity_smoother publica directo en `cmd_vel`.
 
 ---
 
-## 2. Requisitos
+## 3. Requisitos e inicialización del entorno
 
 - Ubuntu 24.04 con **ROS 2 Jazzy** y **Gazebo Harmonic**.
 - Paquetes de ROS (lista derivada de lo que importa el código; ajusta si tu instalación ya los trae):
@@ -54,13 +96,13 @@ Una corrida es **exitosa** si Nav2 completa los cinco waypoints, la pose real qu
 sudo apt install ros-jazzy-ros-gz ros-jazzy-gz-ros2-control ros-jazzy-ros2-control ros-jazzy-ros2-controllers ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-slam-toolbox ros-jazzy-xacro ros-jazzy-robot-state-publisher ros-jazzy-rviz2 ros-jazzy-tf2-ros
 ```
 
-- Python: `numpy` y `pyyaml` para navegación. Solo para los scripts de sintonización del PID (`ag_motion_tests.py`): `deap`, `matplotlib` y `plotly`.
+- Python: `numpy` y `pyyaml`; `matplotlib` para las gráficas (sin él, el experimento corre igual pero no genera las imágenes). Solo para la sintonización del PID (`ag_motion_tests.py`): `deap` y `plotly`.
 
----
+```bash
+sudo apt install python3-numpy python3-yaml python3-matplotlib
+```
 
-## 3. Inicializar el entorno
-
-El repositorio ya tiene la carpeta `src/`, así que **la raíz del repositorio es el workspace**.
+El repositorio ya tiene la carpeta `src/`, así que **la raíz del repositorio es el workspace**:
 
 ```bash
 git clone -b Nav2 https://github.com/Marino-LC/X3_Plus_Simulation.git
@@ -82,143 +124,174 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-Si ya tenías el workspace compilado, vuelve a ejecutar `colcon build` después de actualizar la rama: el mapa, el mundo, los waypoints y el xacro se instalan en `install/` y los nodos leen esa copia.
+Vuelve a ejecutar `colcon build` después de actualizar la rama: el mundo, el mapa, los goals y el xacro se instalan en `install/` y los nodos leen esa copia.
 
 ---
 
-## 4. Ejecutar una prueba
+## 4. Ejecutar el experimento
 
-Abre cinco terminales. En **cada una** ejecuta primero `source /opt/ros/jazzy/setup.bash` y `source install/setup.bash` desde la raíz del workspace.
+Dos terminales. En cada una, desde la raíz del workspace: `source /opt/ros/jazzy/setup.bash` y `source install/setup.bash`.
 
-**Terminal 1 — simulación.** Espera a que el robot aparezca y a que termine la activación de `wheel_velocity_controller`.
-
-```bash
-ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
-```
-
-**Terminal 2 — control de ruedas.**
+**Terminal 1 — simulación, control y Nav2.** Espera el mensaje del `lifecycle_manager_navigation` indicando que los nodos gestionados están activos (Nav2 arranca 15 s después de la simulación).
 
 ```bash
-ros2 run omni_dofbot_bringup mecanum_kinematic_node.py
+ros2 launch omni_dofbot_bringup arena_nav.launch.py
 ```
 
-**Terminal 3 — odometría.**
+**Terminal 2 — experimento.** Empieza con una corrida de prueba (5 episodios); para el artículo usa `runs:=20` o más.
 
 ```bash
-ros2 run omni_dofbot_bringup Mecanum_odometry_node.py
+ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=1
 ```
 
-**Terminal 4 — Nav2.** Espera el mensaje de que los nodos gestionados están activos.
+Los resultados quedan en `results/<fecha>_<localización>/` **dentro del directorio desde el que lanzas el comando** (la raíz del workspace si sigues estos pasos).
+
+### Con SLAM
+
+La localización del launch y la del ejecutor deben coincidir:
 
 ```bash
-ros2 launch omni_dofbot_bringup nav2_arena.launch.py
+ros2 launch omni_dofbot_bringup arena_nav.launch.py localization:=slam
 ```
-
-**Terminal 5 — corridas.** Empieza con dos corridas de prueba; para el experimento usa `runs:=20` o más.
 
 ```bash
-ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=2 -p set_gains:=true -p kp:=1.949 -p ki:=0.256 -p kd:=0.938
+ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=20 -p localization:=slam
 ```
 
-### Ganancias del PID
+En modo SLAM el ejecutor reinicia el mapa al inicio de cada episodio (`/slam_toolbox/reset`), de modo que cada episodio construye su propio mapa, y lo alinea con el mundo usando la pose del robot en el spawn.
 
-Los resultados deben reportarse con las ganancias del algoritmo genético, y eso **no ocurre por defecto**:
+### Argumentos del launch único
 
-- `mecanum_kinematic_node.py` arranca con `kp = 1.0`, `ki = 0.0`, `kd = 0.0`.
-- El ejecutor solo cambia las ganancias si se lanza con `set_gains:=true`; en ese caso las deja registradas en `results.json`.
-- Los valores por defecto del ejecutor (1.949, 0.256, 0.938) son los que venían en el código. La rama `Ruedas_mechanum` no tiene confirmado en el repositorio el resultado final del algoritmo genético, y en versiones anteriores del código aparecía otro juego (2.734, 0.335, 0.756). **El equipo de sintonización debe confirmar cuál es el definitivo** antes de las corridas del artículo.
+| Argumento | Defecto | Significado |
+|---|---|---|
+| `localization` | `amcl` | `amcl`: map_server + AMCL sobre el mapa de referencia. `slam`: slam_toolbox, sin map_server ni AMCL |
+| `use_collision_monitor` | `true` | Incluir `collision_monitor` al final de la cadena de velocidad |
+| `gui` | `true` | Ventana de Gazebo. Con `false` corre el servidor sin ventana (recomendado para medir costo computacional) |
+| `rviz` | `true` | Abrir RViz |
+| `nav2_delay` | `15.0` | Segundos reales de espera antes de arrancar Nav2; súbelo si la PC es lenta |
+
+Los launch siguen funcionando por separado: `omni_dofbot_controller.launch.py` (simulación) y `nav2_arena.launch.py` (Nav2, con los mismos argumentos `localization` y `use_collision_monitor`). `slam_toolbox.launch.py` sirve también para construir un mapa a mano.
 
 ### Parámetros del ejecutor
 
-| Parámetro | Valor por defecto | Significado |
+| Parámetro | Defecto | Significado |
 |---|---|---|
-| `runs` | 20 | Número de corridas |
-| `pos_tol` | 0.08 | Tolerancia de posición en cada waypoint (m), contra la pose real |
+| `runs` | 20 | Corridas; cada una ejecuta los 5 goals |
+| `localization` | `amcl` | Debe coincidir con el launch |
+| `pos_tol` | 0.08 | Tolerancia de posición en el goal (m), contra la pose real |
 | `yaw_tol` | 0.15 | Tolerancia de orientación (rad), contra la pose real |
-| `goal_timeout` | 60.0 | Límite por waypoint, en segundos simulados |
-| `output_dir` | `~/x3_plus_results/<fecha>/` | Carpeta de resultados |
-| `set_gains` | `false` | Si es `true`, fija las ganancias del PID antes de empezar |
-| `kp`, `ki`, `kd` | 1.949, 0.256, 0.938 | Ganancias que se aplican cuando `set_gains` es `true` |
+| `goal_timeout` | 90.0 | Límite por episodio, en segundos simulados |
+| `output_dir` | `./results/<fecha>_<localización>` | Carpeta de resultados |
+| `goals_file` | `config/goals.yaml` instalado | Archivo de goals alternativo |
+| `make_plots` | `true` | Generar las gráficas al final |
+| `set_gains`, `kp`, `ki`, `kd` | `true`, 1.949, 0.256, 0.938 | Ganancias del AG que se fijan al arrancar |
 
-### Resultados
+### Qué hace cada episodio
 
-En la carpeta de salida quedan:
+1. Teletransporta el robot al spawn y reinicia odometría, PID, localización (AMCL: `/initialpose`; SLAM: reset del mapa) y costmaps. Comprueba con la pose real que el reset funcionó; si no, el episodio se marca como inválido y no cuenta en la tasa de éxito.
+2. Envía el goal con `NavigateToPose`.
+3. Registra a 20 Hz la pose real, la odometría y la pose estimada (`map → base_footprint`), cada plan global publicado en `/plan`, las colisiones y las recuperaciones.
+4. Al terminar compara la pose real contra el goal y calcula las métricas.
 
-- **`results.json`**: resumen (tasa de éxito con intervalo de Wilson 95 %) y una entrada por corrida con éxito, causa de fallo, tiempo de misión simulado, tiempo real, RTF, longitud real recorrida, recuperaciones, colisiones y error de posición y orientación por waypoint.
-- **`run_XX_traj.csv`**: trayectoria a 20 Hz con la pose real (`gt_*`, marco del mundo), la odometría (`odom_*`, marco `odom`, origen en el spawn) y la pose estimada por la localización (`est_*`, marco `map`).
+Un episodio es **exitoso** si Nav2 reporta éxito, la pose real queda dentro de 0.08 m y 0.15 rad del goal y no hubo ninguna colisión.
 
 ---
 
 ## 5. Verificación de la primera prueba
 
-Antes de lanzar las 20 corridas, comprueba estos tres puntos.
+Antes de lanzar las 20 corridas:
 
-**Verdad de terreno.** Debe publicar y marcar aproximadamente (0, −0.91) con el robot en el spawn. Si no publica, el ejecutor aborta con un mensaje de error.
-
-```bash
-ros2 topic echo /ground_truth/odom --once
-```
-
-**Árbol TF.** Debe ser `map → odom → base_footprint → base_link → …`, sin ciclos.
+1. **Arranque del ejecutor.** Debe imprimir para cada goal su holgura y su ruta más corta (por ejemplo `Goal 3 (...) holgura=0.270 m ruta más corta=2.080 m`).
+2. **Colisiones.** Los tópicos `/contacts/obstacle_1` a `/contacts/obstacle_5` deben existir:
 
 ```bash
-ros2 run tf2_tools view_frames
+ros2 topic list | grep contacts
 ```
 
-**Sensores de contacto.** Empuja el robot contra una caja (por ejemplo publicando en `/cmd_vel` mientras corre el ejecutor) y confirma que aparece `COLISIÓN con obstacle_1` en su log. También puedes observar el tópico directamente:
-
-```bash
-ros2 topic echo /contacts/obstacle_1
-```
+3. **Collision monitor.** Si el robot no se mueve al enviar el primer goal y el log muestra que `collision_monitor` ordena detenerse, el LiDAR probablemente está detectando partes del propio robot (mástil, brazo) dentro de la zona de paro. Comprueba con RViz el tópico `/scan` alrededor del robot. Mientras se corrige, lanza con `use_collision_monitor:=false`.
+4. **SLAM.** En modo SLAM, tras cada reset el log no debe mostrar `SLAM no publicó un mapa nuevo tras el reset`.
+5. **Resultados.** Al terminar la corrida de prueba revisa `results/<carpeta>/plots/overview.png` y un `plots/goal_<id>.png`.
 
 ---
 
-## 6. Estado frente a las métricas del Artículo 1
+## 6. Métricas y resultados
 
-Todas las métricas se miden en Gazebo. "Implementada" significa que el código existe; ninguna se ha validado aún en ejecución.
+### Archivos de salida
 
-| Métrica | Estado | Lo que falta |
+En `results/<fecha>_<localización>/`:
+
+| Archivo | Contenido |
+|---|---|
+| `results.json` | `config` (parámetros, ganancias, goals con su ruta más corta), `summary` (global y por goal) y `episodes` (todas las métricas de cada episodio) |
+| `episodes.csv` | Una fila por episodio, para análisis en hoja de cálculo |
+| `traj/runXX_goalY.csv` | Trayectoria a 20 Hz: pose real (`gt_*`, mundo), odometría (`odom_*`, marco odom) y pose estimada (`est_*`, marco map) |
+| `traj/runXX_goalY_plans.csv` | Todos los planes globales recibidos durante el episodio |
+| `slam_maps/runXX_goalY.*` | Mapa de SLAM al final del episodio (solo modo SLAM) |
+| `plots/goal_Y.png` | Por goal: trayectorias reales de todas las corridas y su primer plan sobre el mapa, y error transversal en el tiempo |
+| `plots/overview.png` | Todas las trayectorias, un color por goal |
+| `reference_map/` | Copia del mapa de referencia usado |
+
+Para regenerar resumen, `episodes.csv` y gráficas de una carpeta (por ejemplo tras cambiar el código de las gráficas):
+
+```bash
+python3 -m omni_dofbot_bringup.nav_metrics results/<carpeta>
+```
+
+### Definición de cada métrica
+
+Todas se evalúan en el marco del mundo de Gazebo, con la pose real como verdad de terreno.
+
+| Métrica | Clave en `results.json` | Cómo se calcula |
 |---|---|---|
-| Tasa de éxito (SR), N ≥ 20, Wilson 95 % | Implementada | Validar en ejecución |
-| SPL | Parcial: se registra la longitud real recorrida | Longitud de la ruta más corta de referencia y cálculo del SPL |
-| ATE | Parcial: el CSV guarda pose real, odometría y pose estimada | Script de alineación de marcos y RMSE |
-| Error de seguimiento (transversal y de rumbo) | No implementada | Grabar la ruta planificada (`/plan`) y calcular el error contra la pose real |
-| Tiempo y robustez | Implementada: tiempo de misión, recuperaciones y colisiones | Validar en ejecución |
-| Calidad del mapa (IoU, error de pared) | Solo existe el mapa de referencia y los parámetros de `slam_toolbox` | Launch de SLAM, guardado de mapa por corrida, alineación y cálculo |
-| Costo computacional (RTF, CPU por segundo simulado) | Parcial: RTF por corrida | Medición de CPU; quitar el límite de RTF del mundo o reportarlo como limitado a 1.0 |
-| ~~Discrepancia Gazebo vs MuJoCo~~ | Fuera del alcance | — |
+| Tasa de éxito (SR) | `success_rate`, `wilson_95` | Episodios exitosos / episodios válidos, con intervalo de Wilson 95 %, global y por goal |
+| SPL | `spl` | S · l / max(p, l): S = 1 si hubo éxito; l = ruta más corta desde el spawn sobre el mapa de referencia, para un robot de radio 0.12 m (A* + recorte por línea de vista); p = longitud real recorrida. Los fallos valen 0 |
+| Llegada al goal | `final_pos_error`, `final_yaw_error` | Distancia y diferencia de orientación entre la pose real final y el goal |
+| ATE | `ate_localization`, `ate_odometry`, `yaw_rmse_localization` | RMSE de posición entre la pose estimada y la real. Con AMCL el mapa ya está en el marco del mundo; con SLAM y para la odometría, el marco se alinea con la pose del robot al inicio del episodio |
+| Error de seguimiento | `cte_rmse`, `cte_max`, `heading_rmse` | Error transversal: distancia de la pose real al **plan activo** (el último publicado en `/plan`; Nav2 replanifica a 1 Hz). Rumbo: diferencia entre la orientación del robot y la tangente del plan, excluyendo los instantes con el robot detenido y los últimos 0.15 m (giro final sobre el goal) |
+| Desvío del plan inicial | `cte_initial_plan_rmse` | Error transversal contra el primer plan del episodio |
+| Tiempo y robustez | `mission_time`, `recoveries`, `collisions`, `replans` | Tiempo simulado del episodio, recuperaciones de Nav2, colisiones detectadas por los sensores de contacto y número de replanificaciones |
+| Calidad del mapa (solo SLAM) | `map_iou`, `map_iou_tol1`, `map_wall_error_cm` | IoU entre las celdas ocupadas del mapa de SLAM y las celdas ocupadas **visibles** de la referencia (las que tienen un vecino libre), estricta y con tolerancia de una celda; error medio de pared = distancia media de cada celda ocupada de SLAM a la superficie de referencia más cercana |
+| Costo computacional | `rtf`, `cpu_gazebo_per_sim_s`, `cpu_total_per_sim_s` | Factor de tiempo real (tiempo simulado / tiempo real) y segundos de CPU por segundo simulado de los procesos de Gazebo y de toda la máquina, leídos de `/proc` |
+
+En `summary`, cada métrica continua tiene media, desviación estándar, mediana, mínimo y máximo, global y por goal. También se cuentan las causas de fallo (`nav2_fallo`, `colision`, `fuera_de_tolerancia`, `nav2_timeout_o_rechazo`).
+
+### Estado frente a las métricas del Artículo 1
+
+| Métrica | Estado |
+|---|---|
+| Tasa de éxito (N ≥ 20, Wilson 95 %) | Implementada |
+| SPL | Implementada |
+| ATE | Implementada (localización y odometría) |
+| Error de seguimiento (transversal y de rumbo) | Implementada |
+| Tiempo y robustez | Implementada |
+| Calidad del mapa (IoU, error de pared) | Implementada en modo SLAM |
+| Costo computacional (RTF, CPU por segundo simulado) | Implementada; el RTF está limitado a 1.0 por el mundo (ver sección 7) |
+| ~~Discrepancia Gazebo vs MuJoCo~~ | Fuera del alcance |
 
 ---
 
-## 7. Problemas conocidos y decisiones pendientes
+## 7. Problemas conocidos y decisiones
 
-**Decisión por confirmar — posición de WP6.** Se movió de (0, 0.71, yaw 0) a (0.30, 0.81, yaw π), al este del pedestal y mirando hacia él. La meta original quedaba a 0.025 m del borde del pedestal, dentro del footprint, y el hueco de 0.41 m entre la caja O1 y el pedestal no permite girar un robot de 0.33 m de largo. Si se quiere llegar al pedestal desde el sur, hay que mover O1 o el pedestal.
+**RTF limitado a 1.0.** `arena_world.world` fija `real_time_factor` en 1.0, así que el RTF medido nunca superará 1; el costo comparable es la CPU por segundo simulado. Para medir sin ese límite, pon `real_time_factor` en 0 (sin límite) en el mundo.
 
-**Geometría de la odometría.** Los nodos usan `lx = 0.110`, pero el URDF coloca las ruedas en x = ±0.08. Si el modelo simulado es el del URDF, la velocidad angular odométrica tiene alrededor de 16 % de error. Se puede comprobar comparando `odom_yaw` contra `gt_yaw` en el CSV.
+**El LiDAR puede detectar al propio robot.** Si el LiDAR ve el mástil o el brazo, el `collision_monitor` detiene el robot (ver sección 5). Antes no se notaba porque el monitor no estaba realmente en la cadena de `cmd_vel`.
 
-**Tramos de la ruta que atraviesan las cajas.** Las rectas WP2→WP3 y WP4→WP5 pasan por el centro de O2 y O1; el planificador las rodea. Por eso la ruta más corta para el SPL no es la poligonal entre waypoints.
+**Error de rumbo en una base holonómica.** DWB tiene ahora `vy` habilitado, así que el robot puede avanzar sin mirar en la dirección del plan; el error de rumbo mide cuánto se aparta la orientación del robot de la tangente del plan, no un error de trayectoria.
 
-**Navegación como robot diferencial.** DWB tiene `vy = 0`, así que no se usa el desplazamiento lateral de las ruedas mecanum. Los yaw de los waypoints intermedios obligan a giros en el sitio.
+**Cambios de esta versión sobre parámetros del equipo:**
 
-**RTF limitado.** `arena_world.world` fija `real_time_factor` en 1.0, por lo que el RTF medido nunca superará 1.
+- `collision_monitor`: la zona de paro pasó de un círculo de 0.35 m a la huella del robot + 4 cm. Con el círculo, el robot se detenía a unos 17 cm de cualquier superficie y no podía llegar a goals junto a paredes u obstáculos.
+- Cadena de `cmd_vel`: antes el controlador y el `collision_monitor` publicaban los dos en `cmd_vel`, y el velocity_smoother leía `cmd_vel`, formando un ciclo. Ahora sigue la cadena estándar de Nav2 (sección 2).
+- `max_vel_y` / `min_vel_y` pasaron de ±40.0 a ±0.40, que es el valor que indica el comentario del archivo.
+- `CMakeLists.txt` instalaba una carpeta `metrics` que no existe en el repositorio, lo que hace fallar `colcon build` en un clon limpio; se quitó.
 
-**Velocity smoother fuera de la cadena.** El controlador publica directo en `/cmd_vel`; nadie consume `cmd_vel_smoothed`.
+**Sin sensor IMU.** El plugin del mundo está declarado, pero el xacro del IMU sigue comentado, así que `/imu` no publica.
 
-**Sin sensor IMU.** El plugin del mundo ya está bien declarado, pero el xacro del IMU sigue comentado, así que `/imu` no publica.
-
-**Ganancias del PID sin confirmar.** Ver [Ganancias del PID](#ganancias-del-pid): el nodo de control arranca con ganancias genéricas y el valor final del algoritmo genético no está fijado en el repositorio.
-
-**Homologación tomada como supuesto.** Esta rama no verifica la homologación de cinemática y actuadores; si la discrepancia de `lx` descrita arriba se confirma, afecta a ese supuesto.
-
-**Archivos de MuJoCo.** `world_mujoco/arena_pid_tunning.xml` pertenece a la sintonización del PID y no se usa en navegación.
-
-**Empaquetado.** `package.xml` no declara dependencias y `world_mujoco` no se instala.
+**Empaquetado.** `package.xml` no declara dependencias y `world_mujoco` (solo para la sintonización del PID) no se instala.
 
 ---
 
-## 8. Trabajo pendiente, en orden
+## 8. Trabajo pendiente
 
-1. **Validar en Gazebo** lo descrito en este documento (sección 5) y corregir lo que falle.
-2. **Confirmar las ganancias del algoritmo genético** y fijarlas como valores por defecto del nodo de control o de un launch.
-3. **Launch único** que incluya los nodos de cinemática y odometría, con modo `localization:=amcl|slam`, más un launch de `slam_toolbox`.
-4. **Scripts de análisis offline** para SPL, ATE, error de seguimiento, calidad de mapa y costo computacional, a partir de `results.json` y los CSV.
+1. **Validar en Gazebo** esta versión siguiendo la sección 5, con AMCL y con SLAM.
+2. **Correr el experimento del artículo**: `runs:=20` con AMCL y con SLAM, preferentemente con `gui:=false rviz:=false` para que el costo computacional no incluya el render de las ventanas.

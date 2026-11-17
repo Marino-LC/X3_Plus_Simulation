@@ -1,15 +1,17 @@
 import os
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     IncludeLaunchDescription, DeclareLaunchArgument,
     SetEnvironmentVariable, RegisterEventHandler, ExecuteProcess
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch.substitutions import Command
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 
 
 def generate_launch_description():
@@ -29,6 +31,22 @@ def generate_launch_description():
         # 'arena_pid_tuning.world'  
         'arena_world.world'
     )
+
+    # Spawn y modelos con sensor de contacto: misma fuente que waypoints_nav.py
+    with open(os.path.join(get_package_share_directory('omni_dofbot_bringup'),
+                           'config', 'goals.yaml')) as f:
+        goals_cfg = yaml.safe_load(f)
+    spawn = goals_cfg['spawn']
+    contact_models = goals_cfg['arena']['contact_models']
+
+    # gui:=false -> servidor de Gazebo sin ventana (los sensores se siguen
+    # renderizando sin pantalla). Útil para medir el costo computacional.
+    gui = LaunchConfiguration('gui')
+    use_rviz = LaunchConfiguration('rviz')
+    gui_arg = DeclareLaunchArgument(
+        'gui', default_value='true', description='Abrir la ventana de Gazebo')
+    rviz_arg = DeclareLaunchArgument(
+        'rviz', default_value='true', description='Abrir RViz')
 
     workspace_install_dir = os.path.abspath(os.path.join(pkg_omni_desc, '..'))
 
@@ -57,7 +75,9 @@ def generate_launch_description():
                 'launch', 'gz_sim.launch.py'
             )
         ),
-        launch_arguments={'gz_args': f'-r {world}'}.items()
+        launch_arguments={'gz_args': PythonExpression([
+            f"'-r {world}' if '", gui, f"' == 'true' else '-r -s --headless-rendering {world}'"
+        ])}.items()
     )
 
     spawn_entity = Node(
@@ -66,8 +86,8 @@ def generate_launch_description():
         arguments=[
             '-topic', 'robot_description',
             '-name', 'omni_dofbot',
-            '-x', '0.0', '-y', '-0.91', '-z', '0.1',
-            '-Y','1.570796'
+            '-x', str(spawn['x']), '-y', str(spawn['y']), '-z', '0.1',
+            '-Y', str(spawn['yaw'])
         ],
         output='screen'
     )
@@ -88,8 +108,7 @@ def generate_launch_description():
                 '/ground_truth/odom@nav_msgs/msg/Odometry[gz.msgs.Odometry',
                 # Sensores de contacto de arena_world.world (detección de colisiones)
                 *[f'/contacts/{m}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts'
-                  for m in ('wall_north', 'wall_south', 'wall_east', 'wall_west',
-                            'obstacle_1', 'obstacle_2', 'pedestal')],
+                  for m in contact_models],
         ],
         output='screen'
     )
@@ -188,12 +207,15 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         arguments=['-d', rviz_config_path],
-        parameters=[{'use_sim_time': True}]
+        parameters=[{'use_sim_time': True}],
+        condition=IfCondition(use_rviz)
     )
 
     return LaunchDescription([
         set_gz_model_path,
         config_arg,
+        gui_arg,
+        rviz_arg,
         robot_state_publisher_node,
         gazebo,
         spawn_entity,

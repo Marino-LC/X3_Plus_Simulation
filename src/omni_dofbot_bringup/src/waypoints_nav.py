@@ -2,52 +2,55 @@
 """
 waypoints_nav.py
 ================
-Ejecutor de corridas de navegación para las métricas del Artículo 1.
+Ejecutor del experimento de navegación del Artículo 1 (solo Gazebo).
 
-Por cada corrida:
-  1. Teletransporta el robot al WP1 (spawn) en Gazebo.
-  2. Reinicia odometría, estado del PID, pose de AMCL y costmaps.
-  3. Envía WP2..WPn a Nav2 UNO POR UNO (NavigateToPose), de modo que el robot
-     se detiene en cada waypoint y la tolerancia se puede verificar.
-  4. En cada waypoint compara la pose REAL del simulador (/ground_truth/odom,
-     marco del mundo) con el waypoint: tolerancia pos_tol / yaw_tol.
-  5. Cuenta colisiones (sensores de contacto de paredes, cajas y pedestal) y
-     recuperaciones de Nav2, mide tiempo de misión (simulado), longitud de
-     trayectoria real y factor de tiempo real.
+Por cada corrida recorre las 5 goal poses de config/goals.yaml. Cada goal es un
+EPISODIO INDEPENDIENTE:
+  1. Teleport del robot al spawn; reset de odometría, PID, localización
+     (AMCL: /initialpose; SLAM: /slam_toolbox/reset) y costmaps.
+  2. NavigateToPose directo al goal.
+  3. Durante el episodio registra a 20 Hz la pose real (/ground_truth/odom), la
+     odometría (/odom) y la pose estimada (TF map -> base_footprint), además de
+     cada plan global (/plan), colisiones (/contacts/*) y recuperaciones.
+  4. Al terminar calcula las métricas (omni_dofbot_bringup/nav_metrics.py):
+       éxito (Nav2 OK + pose real dentro de pos_tol/yaw_tol + sin colisión),
+       SPL, error final de posición y orientación, ATE de la localización y de
+       la odometría, error transversal y de rumbo respecto al plan activo,
+       tiempo de misión, recuperaciones, colisiones, replanificaciones, RTF,
+       CPU de Gazebo y de la máquina por segundo simulado y, en modo SLAM,
+       IoU del mapa y error medio de pared.
 
-Una corrida es EXITOSA si Nav2 completa todos los waypoints, la pose real
-queda dentro de tolerancia en cada uno y no hubo ninguna colisión.
+Salidas en output_dir (por defecto ./results/<fecha>_<localización>/, relativo
+al directorio desde el que se lanza):
+  results.json            configuración, resumen (global y por goal, con
+                          intervalo de Wilson 95 %) y todos los episodios
+  episodes.csv            una fila por episodio
+  traj/runXX_goalY.csv        trayectoria (real, odometría, estimada)
+  traj/runXX_goalY_plans.csv  planes globales recibidos
+  slam_maps/runXX_goalY.*     mapa de SLAM al final del episodio (modo slam)
+  plots/goal_Y.png, plots/overview.png
+  reference_map/          copia del mapa de referencia usado
 
-Salidas (en output_dir, por defecto ~/x3_plus_results/<fecha>/):
-  results.json        resumen + una entrada por corrida (tasa de éxito con
-                      intervalo de Wilson 95 %)
-  run_XX_traj.csv     trayectoria a 20 Hz: verdad de terreno (mundo),
-                      odometría (marco odom) y pose estimada map->base_footprint
-
-Requiere que el marco `map` coincida con el mundo de Gazebo (mapa generado por
-maps/generate_map.py).
-
-EJECUCIÓN:
-  # T1 — simulación
-  ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
-  # T2 — cinemática + PID
-  ros2 run omni_dofbot_bringup mecanum_kinematic_node.py
-  # T3 — odometría
-  ros2 run omni_dofbot_bringup Mecanum_odometry_node.py
-  # T4 — Nav2
-  ros2 launch omni_dofbot_bringup nav2_arena.launch.py
-  # T5 — este nodo
+EJECUCIÓN (desde la raíz del workspace, con el entorno cargado):
+  # T1 — simulación + control + Nav2 (AMCL)
+  ros2 launch omni_dofbot_bringup arena_nav.launch.py
+  # T2 — experimento
   ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=20
+  # Con SLAM: lanzar con localization:=slam y pasar el mismo parámetro aquí.
+
+Regenerar resumen y gráficas de una carpeta:
+  python3 -m omni_dofbot_bringup.nav_metrics results/<carpeta>
 """
 
 import os
-import csv
 import json
 import math
 import time
+import shutil
 import threading
 import subprocess
 
+import numpy as np
 import yaml
 import rclpy
 from rclpy.node import Node
@@ -55,6 +58,7 @@ from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.parameter import Parameter as RclpyParameter
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from rclpy.time import Time
 from ament_index_python.packages import get_package_share_directory
 
@@ -63,7 +67,7 @@ from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
 
 from geometry_msgs.msg import (
     PoseStamped, PoseWithCovarianceStamped, Twist, Pose, Point, Quaternion)
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path, OccupancyGrid
 from action_msgs.msg import GoalStatus
 from std_srvs.srv import Empty
 
@@ -74,14 +78,8 @@ from ros_gz_interfaces.msg import Entity, Contacts
 
 import tf2_ros
 
-WORLD_NAME = "arena_world"
-ROBOT_NAME = "omni_dofbot"
-# Modelos con sensor de contacto en arena_world.world (tópicos /contacts/<modelo>)
-CONTACT_MODELS = ("wall_north", "wall_south", "wall_east", "wall_west",
-                  "obstacle_1", "obstacle_2", "pedestal")
-# mecanum_odometry_node se reinicia a (0, 0, pi/2); el teleport y la pose
-# inicial de AMCL usan el mismo yaw para que odom, AMCL y Gazebo coincidan.
-RESET_YAW = math.pi / 2.0
+from omni_dofbot_bringup import nav_metrics as nm
+
 CONTACT_GAP = 0.5        # s simulados sin contacto para contar una colisión nueva
 TRAJ_PERIOD = 0.05       # s simulados entre muestras de trayectoria (20 Hz)
 
@@ -91,22 +89,11 @@ def _yaw_from_quat(q) -> float:
                       1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
 
-def _ang_diff(a: float, b: float) -> float:
-    return (a - b + math.pi) % (2.0 * math.pi) - math.pi
+def _quat(yaw: float) -> Quaternion:
+    return Quaternion(x=0.0, y=0.0, z=math.sin(yaw / 2.0), w=math.cos(yaw / 2.0))
 
 
-def wilson_interval(successes: int, n: int, z: float = 1.96):
-    """Intervalo de Wilson para una proporción (95 % con z = 1.96)."""
-    if n == 0:
-        return float("nan"), float("nan")
-    p = successes / n
-    den = 1.0 + z * z / n
-    centre = (p + z * z / (2.0 * n)) / den
-    half = z * math.sqrt(p * (1.0 - p) / n + z * z / (4.0 * n * n)) / den
-    return max(0.0, centre - half), min(1.0, centre + half)
-
-
-class WaypointRunner(Node):
+class NavExperiment(Node):
 
     def __init__(self):
         super().__init__(
@@ -116,15 +103,36 @@ class WaypointRunner(Node):
         self._cbg = ReentrantCallbackGroup()
 
         # ── Parámetros ────────────────────────────────────────────────────────
-        self.declare_parameter("runs", 20)            # N >= 20 por simulador
-        self.declare_parameter("pos_tol", 0.08)       # m, contra verdad de terreno
-        self.declare_parameter("yaw_tol", 0.15)       # rad, contra verdad de terreno
-        self.declare_parameter("goal_timeout", 60.0)  # s simulados por waypoint
-        self.declare_parameter("output_dir", "")
-        self.declare_parameter("set_gains", True)    # si False, no toca el PID
-        self.declare_parameter("kp", 1.949)          # Ganancia Proporcional definitiva
-        self.declare_parameter("ki", 0.256)          # Ganancia Integral definitiva
-        self.declare_parameter("kd", 0.938)          # Ganancia Derivativa definitiva
+        self.declare_parameter("runs", 20)             # N >= 20 episodios por goal
+        self.declare_parameter("localization", "amcl")  # amcl | slam (igual que el launch)
+        self.declare_parameter("pos_tol", 0.08)        # m, contra verdad de terreno
+        self.declare_parameter("yaw_tol", 0.15)        # rad, contra verdad de terreno
+        self.declare_parameter("goal_timeout", 90.0)   # s simulados por episodio
+        self.declare_parameter("goals_file", "")       # vacío = config/goals.yaml del paquete
+        self.declare_parameter("output_dir", "")       # vacío = ./results/<fecha>_<loc>
+        self.declare_parameter("make_plots", True)
+        self.declare_parameter("set_gains", True)      # fija las ganancias del AG
+        self.declare_parameter("kp", 1.949)            # Ganancia Proporcional definitiva
+        self.declare_parameter("ki", 0.256)            # Ganancia Integral definitiva
+        self.declare_parameter("kd", 0.938)            # Ganancia Derivativa definitiva
+
+        self._loc = str(self.get_parameter("localization").value).lower()
+        if self._loc not in ("amcl", "slam"):
+            raise ValueError("localization debe ser 'amcl' o 'slam'")
+
+        share = get_package_share_directory("omni_dofbot_bringup")
+        goals_file = self.get_parameter("goals_file").value or os.path.join(
+            share, "config", "goals.yaml")
+        with open(goals_file) as f:
+            self._cfg = yaml.safe_load(f)
+        self._map_yaml = os.path.join(share, "maps", "arena_map.yaml")
+        self._ref = nm.load_map_yaml(self._map_yaml)
+        arena = self._cfg["arena"]
+        self._world = arena["world_name"]
+        self._robot = arena["robot_name"]
+        sp = self._cfg["spawn"]
+        self._spawn = (float(sp["x"]), float(sp["y"]), float(sp["yaw"]))
+        self._goals = self._validate_goals()
 
         # ── Clientes / publicadores ───────────────────────────────────────────
         self._pid_client = self.create_client(
@@ -133,9 +141,8 @@ class WaypointRunner(Node):
         self._nav_client = ActionClient(
             self, NavigateToPose, "navigate_to_pose", callback_group=self._cbg)
         self._tp_client = self.create_client(
-            SetEntityPose, f"/world/{WORLD_NAME}/set_entity_pose",
+            SetEntityPose, f"/world/{self._world}/set_entity_pose",
             callback_group=self._cbg)
-        # OJO: el nodo se llama 'mecanum_odometry_node' (minúsculas)
         self._reset_odom_cli = self.create_client(
             Empty, "/mecanum_odometry_node/reset_pose", callback_group=self._cbg)
         self._reset_ctrl_cli = self.create_client(
@@ -145,6 +152,12 @@ class WaypointRunner(Node):
             self.create_client(ClearEntireCostmap, name, callback_group=self._cbg)
             for name in ("/global_costmap/clear_entirely_global_costmap",
                          "/local_costmap/clear_entirely_local_costmap")]
+        self._slam_reset_cli = None
+        if self._loc == "slam":
+            from slam_toolbox.srv import Reset   # solo hace falta en modo SLAM
+            self._SlamReset = Reset
+            self._slam_reset_cli = self.create_client(
+                Reset, "/slam_toolbox/reset", callback_group=self._cbg)
         self._cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self._initpose_pub = self.create_publisher(
             PoseWithCovarianceStamped, "/initialpose", 10)
@@ -155,29 +168,72 @@ class WaypointRunner(Node):
         self._odom = None          # (x, y, yaw) odometría, marco odom
         self._recording = False
         self._traj = []
-        self._path_len = 0.0
-        self._last_gt_xy = None
+        self._plans = []
         self._last_sample_t = -1.0
-        self._collisions = []      # [{"object":..., "t":...}]
+        self._collisions = []
         self._last_contact_t = {}
+        self._map_msg = None
+        self._map_rx_wall = 0.0
 
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
 
+        self.create_subscription(Odometry, "/ground_truth/odom", self._gt_cb, 50,
+                                 callback_group=self._cbg)
+        self.create_subscription(Odometry, "/odom", self._odom_cb, 50,
+                                 callback_group=self._cbg)
+        self.create_subscription(Path, "/plan", self._plan_cb, 10,
+                                 callback_group=self._cbg)
         self.create_subscription(
-            Odometry, "/ground_truth/odom", self._gt_cb, 50,
+            OccupancyGrid, "/map", self._map_cb,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE),
             callback_group=self._cbg)
-        self.create_subscription(
-            Odometry, "/odom", self._odom_cb, 50, callback_group=self._cbg)
-        for model in CONTACT_MODELS:
+        for model in arena["contact_models"]:
             self.create_subscription(
                 Contacts, f"/contacts/{model}",
                 lambda msg, m=model: self._contact_cb(m, msg), 10,
                 callback_group=self._cbg)
 
-        self._waypoints = self._load_waypoints()
         self.get_logger().info(
-            f"WaypointRunner listo — {len(self._waypoints)} waypoints cargados")
+            f"Experimento listo — {len(self._goals)} goals, localización={self._loc}")
+
+    # ── Configuración ─────────────────────────────────────────────────────────
+    def _validate_goals(self):
+        """Comprueba que cada goal es alcanzable y calcula la ruta más corta (SPL)."""
+        fp = self._cfg["footprint"]
+        goals, errors = [], []
+        for g in self._cfg["goals"]:
+            pose = (float(g["x"]), float(g["y"]), float(g["yaw"]))
+            clr = nm.footprint_clearance(self._ref, pose, fp["x_min"], fp["x_max"], fp["y_half"])
+            if clr < fp["goal_clearance"]:
+                errors.append(f"goal {g['id']}: holgura de la huella {clr:.3f} m "
+                              f"< {fp['goal_clearance']} m (dentro o junto a un obstáculo)")
+                continue
+            try:
+                length, path = nm.shortest_path(self._ref, self._spawn[:2], pose[:2],
+                                                fp["inscribed_radius"])
+            except ValueError as e:
+                errors.append(f"goal {g['id']}: {e}")
+                continue
+            if not math.isfinite(length):
+                errors.append(f"goal {g['id']}: no hay ruta desde el spawn")
+                continue
+            goals.append({"id": int(g["id"]), "label": g.get("label", ""),
+                          "x": pose[0], "y": pose[1], "yaw": pose[2],
+                          "footprint_clearance": clr,
+                          "shortest_path_length": length,
+                          "shortest_path": path.tolist()})
+        if errors:
+            for e in errors:
+                self.get_logger().error(e)
+            raise RuntimeError("Hay goals inválidos en goals.yaml; corrígelos antes de medir")
+        for g in goals:
+            self.get_logger().info(
+                f"Goal {g['id']} ({g['x']:.2f}, {g['y']:.2f}, {g['yaw']:.2f}) "
+                f"holgura={g['footprint_clearance']:.3f} m "
+                f"ruta más corta={g['shortest_path_length']:.3f} m")
+        return goals
 
     # ── Utilidades ────────────────────────────────────────────────────────────
     def _now(self) -> float:
@@ -189,20 +245,6 @@ class WaypointRunner(Node):
         while self._now() < t_end and rclpy.ok():
             time.sleep(0.01)
 
-    def _load_waypoints(self) -> list:
-        share = get_package_share_directory("omni_dofbot_bringup")
-        path = os.path.join(share, "config", "waypoints.yaml")
-        self.get_logger().info(f"Buscando waypoints en: {path}")
-        if not os.path.exists(path):
-            self.get_logger().error(f"Archivo no encontrado: {path}")
-            return []
-        with open(path, "r") as f:
-            return yaml.safe_load(f)["waypoints"]
-
-    @staticmethod
-    def _yaw_to_quat(yaw: float):
-        return 0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0)
-
     def _call(self, client, req, timeout=3.0):
         """Llama a un servicio sin bloquear el executor."""
         fut = client.call_async(req)
@@ -211,11 +253,21 @@ class WaypointRunner(Node):
             time.sleep(0.05)
         return fut.result() if fut.done() else None
 
-    def _wait_future(self, fut, timeout):
+    @staticmethod
+    def _wait_future(fut, timeout):
         t0 = time.time()
         while not fut.done() and time.time() - t0 < timeout:
             time.sleep(0.05)
         return fut.done()
+
+    def _lookup_est(self):
+        """Pose estimada por la localización: TF map -> base_footprint."""
+        try:
+            tf = self._tf_buffer.lookup_transform("map", "base_footprint", Time())
+        except Exception:
+            return None
+        return (tf.transform.translation.x, tf.transform.translation.y,
+                _yaw_from_quat(tf.transform.rotation))
 
     # ── Callbacks de medición ─────────────────────────────────────────────────
     def _odom_cb(self, msg: Odometry):
@@ -229,32 +281,32 @@ class WaypointRunner(Node):
         t = Time.from_msg(msg.header.stamp).nanoseconds * 1e-9
         with self._lock:
             self._gt = (x, y, yaw)
-            if not self._recording:
-                return
-            if self._last_gt_xy is not None:
-                self._path_len += math.hypot(x - self._last_gt_xy[0],
-                                             y - self._last_gt_xy[1])
-            self._last_gt_xy = (x, y)
-            if t - self._last_sample_t < TRAJ_PERIOD:
+            if not self._recording or t - self._last_sample_t < TRAJ_PERIOD:
                 return
             self._last_sample_t = t
             odom = self._odom or (math.nan,) * 3
-        est = (math.nan,) * 3
-        try:   # pose estimada por la localización (AMCL o SLAM) en el marco map
-            tf = self._tf_buffer.lookup_transform("map", "base_footprint", Time())
-            est = (tf.transform.translation.x, tf.transform.translation.y,
-                   _yaw_from_quat(tf.transform.rotation))
-        except Exception:
-            pass
+        est = self._lookup_est() or (math.nan,) * 3
         with self._lock:
             if self._recording:
                 self._traj.append((t, x, y, yaw, *odom, *est))
 
+    def _plan_cb(self, msg: Path):
+        if not self._recording or not msg.poses:
+            return
+        xy = np.array([(ps.pose.position.x, ps.pose.position.y) for ps in msg.poses])
+        with self._lock:
+            if self._recording:
+                self._plans.append((self._now(), xy))
+
+    def _map_cb(self, msg: OccupancyGrid):
+        with self._lock:
+            self._map_msg = msg
+            self._map_rx_wall = time.time()
+
     def _contact_cb(self, model: str, msg: Contacts):
         if not self._recording:
             return
-        # El cubo descansa sobre el pedestal: solo cuentan contactos con el robot.
-        if not any(ROBOT_NAME in c.collision1.name or ROBOT_NAME in c.collision2.name
+        if not any(self._robot in c.collision1.name or self._robot in c.collision2.name
                    for c in msg.contacts):
             return
         now = self._now()
@@ -269,92 +321,99 @@ class WaypointRunner(Node):
         with self._lock:
             return self._gt
 
-    def _start_recording(self):
+    def _odom_pose(self):
         with self._lock:
-            self._traj = []
-            self._path_len = 0.0
-            self._last_gt_xy = None
-            self._last_sample_t = -1.0
-            self._collisions = []
-            self._last_contact_t = {}
-            self._recording = True
-
-    def _stop_recording(self):
-        with self._lock:
-            self._recording = False
-            return list(self._traj), self._path_len, list(self._collisions)
+            return self._odom
 
     # ── Reset del robot ───────────────────────────────────────────────────────
-    def reset_robot(self) -> bool:
-        """Teletransporta al WP1 y reinicia odometría, PID, AMCL y costmaps."""
-        self._cmd_vel_pub.publish(Twist())
-        self._sleep_sim(0.3)
-
-        spawn = self._waypoints[0]
-        x, y = float(spawn["x"]), float(spawn["y"])
-        qx, qy, qz, qw = self._yaw_to_quat(RESET_YAW)
+    def _teleport(self, x, y, yaw):
         z = 0.05
-
-        done = False
+        q = _quat(yaw)
         if self._tp_client.wait_for_service(timeout_sec=2.0):
             req = SetEntityPose.Request()
-            req.entity.name = ROBOT_NAME
+            req.entity.name = self._robot
             req.entity.type = Entity.MODEL
-            req.pose = Pose(position=Point(x=x, y=y, z=z),
-                            orientation=Quaternion(x=qx, y=qy, z=qz, w=qw))
-            done = self._call(self._tp_client, req) is not None
+            req.pose = Pose(position=Point(x=x, y=y, z=z), orientation=q)
+            if self._call(self._tp_client, req) is not None:
+                return
+        rs = (f'name: "{self._robot}", position: {{x: {x}, y: {y}, z: {z}}}, '
+              f'orientation: {{x: 0, y: 0, z: {q.z}, w: {q.w}}}')
+        try:
+            subprocess.run(
+                ["gz", "service", "-s", f"/world/{self._world}/set_pose",
+                 "--reqtype", "gz.msgs.Pose", "--reptype", "gz.msgs.Boolean",
+                 "--timeout", "2000", "--req", rs],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            self.get_logger().error(f"gz service falló: {e}")
 
-        if not done:  # fallback: gz service
-            rs = (f'name: "{ROBOT_NAME}", position: {{x: {x}, y: {y}, z: {z}}}, '
-                  f'orientation: {{x: {qx}, y: {qy}, z: {qz}, w: {qw}}}')
-            try:
-                subprocess.run(
-                    ["gz", "service", "-s", f"/world/{WORLD_NAME}/set_pose",
-                     "--reqtype", "gz.msgs.Pose", "--reptype", "gz.msgs.Boolean",
-                     "--timeout", "2000", "--req", rs],
-                    check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            except (subprocess.CalledProcessError, FileNotFoundError) as e:
-                self.get_logger().error(f"gz service falló: {e}")
-
+    def reset_robot(self):
+        """Lleva el robot al spawn y reinicia odometría, PID, localización y
+        costmaps. Devuelve (T_world_map, T_world_odom) o None si falló."""
+        self._cmd_vel_pub.publish(Twist())
+        self._sleep_sim(0.3)
+        x, y, yaw = self._spawn
+        self._teleport(x, y, yaw)
         self._sleep_sim(1.0)  # el robot cae y se asienta
 
         for cli, name in ((self._reset_odom_cli, "reset_pose de odometría"),
                           (self._reset_ctrl_cli, "reset_controller_state")):
-            if cli.wait_for_service(timeout_sec=2.0):
-                self._call(cli, Empty.Request(), 2.0)
-            else:
+            if not cli.wait_for_service(timeout_sec=2.0):
                 self.get_logger().error(f"{name} no disponible")
-                return False
-        self._sleep_sim(0.2)
+                return None
+            self._call(cli, Empty.Request(), 2.0)
+        self._sleep_sim(0.3)
 
-        # AMCL: misma pose que el teleport (map == mundo)
-        ip = PoseWithCovarianceStamped()
-        ip.header.frame_id = "map"
-        ip.header.stamp = self.get_clock().now().to_msg()
-        ip.pose.pose = Pose(position=Point(x=x, y=y, z=0.0),
-                            orientation=Quaternion(x=qx, y=qy, z=qz, w=qw))
-        ip.pose.covariance[0] = 0.01     # x
-        ip.pose.covariance[7] = 0.01     # y
-        ip.pose.covariance[35] = 0.01    # yaw
-        self._initpose_pub.publish(ip)
-        self._sleep_sim(1.0)
+        if self._loc == "amcl":
+            ip = PoseWithCovarianceStamped()
+            ip.header.frame_id = "map"
+            ip.header.stamp = self.get_clock().now().to_msg()
+            ip.pose.pose = Pose(position=Point(x=x, y=y, z=0.0), orientation=_quat(yaw))
+            ip.pose.covariance[0] = 0.01     # x
+            ip.pose.covariance[7] = 0.01     # y
+            ip.pose.covariance[35] = 0.01    # yaw
+            self._initpose_pub.publish(ip)
+            self._sleep_sim(1.0)
+        else:
+            if not self._slam_reset_cli.wait_for_service(timeout_sec=5.0):
+                self.get_logger().error("/slam_toolbox/reset no disponible")
+                return None
+            t_reset = time.time()
+            self._call(self._slam_reset_cli, self._SlamReset.Request(), 5.0)
+            self._sleep_sim(2.0)             # primeros scans del mapa nuevo
+            t0 = time.time()
+            while self._map_rx_wall < t_reset and time.time() - t0 < 10.0:
+                time.sleep(0.1)
+            if self._map_rx_wall < t_reset:
+                self.get_logger().error("SLAM no publicó un mapa nuevo tras el reset")
+                return None
 
         for cli in self._clear_costmap_clis:
             if cli.wait_for_service(timeout_sec=2.0):
                 self._call(cli, ClearEntireCostmap.Request(), 2.0)
         self._sleep_sim(1.0)   # los costmaps se vuelven a llenar con /scan
 
-        gt = self._gt_pose()
-        err = math.hypot(gt[0] - x, gt[1] - y)
-        if err > 0.05 or abs(_ang_diff(gt[2], RESET_YAW)) > 0.1:
+        gt, odom, est = self._gt_pose(), self._odom_pose(), self._lookup_est()
+        if gt is None or odom is None or est is None:
+            self.get_logger().error("Reset fallido: falta verdad de terreno, odometría o TF map")
+            return None
+        if math.hypot(gt[0] - x, gt[1] - y) > 0.05 or abs(nm.wrap(gt[2] - yaw)) > 0.1:
             self.get_logger().error(
                 f"Reset fallido: el robot está en ({gt[0]:.3f}, {gt[1]:.3f}, "
                 f"{gt[2]:.2f} rad), no en el spawn")
-            return False
-        self.get_logger().info("Robot reseteado en WP1")
-        return True
+            return None
 
-    # ── PID (opcional) ────────────────────────────────────────────────────────
+        T_world_odom = nm.align_from_pair(gt, odom)
+        if self._loc == "amcl":
+            T_world_map = nm.IDENTITY       # el mapa estático está en el marco del mundo
+            err = math.hypot(est[0] - gt[0], est[1] - gt[1])
+            if err > 0.10:
+                self.get_logger().warn(f"AMCL arranca a {err:.3f} m de la pose real")
+        else:
+            T_world_map = nm.align_from_pair(gt, est)   # el mapa de SLAM nace en el spawn
+        return T_world_map, T_world_odom
+
+    # ── PID ───────────────────────────────────────────────────────────────────
     def set_pid(self, kp, ki, kd):
         if not self._pid_client.wait_for_service(timeout_sec=5.0):
             self.get_logger().error("mecanum_kinematic_node no disponible")
@@ -372,118 +431,145 @@ class WaypointRunner(Node):
         else:
             self.get_logger().info(f"PID fijado: Kp={kp} Ki={ki} Kd={kd}")
 
-    # ── Navegación ────────────────────────────────────────────────────────────
-    def _go_to(self, wp: dict) -> dict:
-        """Navega a un waypoint y evalúa la llegada contra la verdad de terreno."""
-        gx, gy, gyaw = float(wp["x"]), float(wp["y"]), float(wp["yaw"])
-        goal = NavigateToPose.Goal()
-        goal.pose = PoseStamped()
-        goal.pose.header.frame_id = "map"
-        goal.pose.header.stamp = self.get_clock().now().to_msg()
-        goal.pose.pose.position.x = gx
-        goal.pose.pose.position.y = gy
-        qx, qy, qz, qw = self._yaw_to_quat(gyaw)
-        goal.pose.pose.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
+    # ── Episodio ──────────────────────────────────────────────────────────────
+    def run_episode(self, run, goal, T_world_map, T_world_odom, out_dir, gz_pids):
+        gx, gy, gyaw = goal["x"], goal["y"], goal["yaw"]
+        gm = nm.se2_compose(nm.se2_inverse(T_world_map), (gx, gy, gyaw))   # goal en map
+
+        nav_goal = NavigateToPose.Goal()
+        nav_goal.pose = PoseStamped()
+        nav_goal.pose.header.frame_id = "map"
+        nav_goal.pose.header.stamp = self.get_clock().now().to_msg()
+        nav_goal.pose.pose = Pose(position=Point(x=gm[0], y=gm[1], z=0.0),
+                                  orientation=_quat(gm[2]))
 
         recoveries = [0]
 
         def _feedback(msg):
             recoveries[0] = max(recoveries[0], int(msg.feedback.number_of_recoveries))
 
-        out = {"id": wp["id"], "nav_status": None, "recoveries": 0,
-               "time": 0.0, "pos_error": None, "yaw_error": None,
-               "within_tolerance": False}
-        t0 = self._now()
-        send_future = self._nav_client.send_goal_async(goal, feedback_callback=_feedback)
-        if not self._wait_future(send_future, 10.0) or send_future.result() is None \
-                or not send_future.result().accepted:
-            self.get_logger().error(f"Nav2 no aceptó el WP{wp['id']}")
-            return out
+        with self._lock:
+            self._traj, self._plans = [], []
+            self._last_sample_t = -1.0
+            self._collisions, self._last_contact_t = [], {}
+            self._recording = True
+        cpu0 = nm.cpu_snapshot(gz_pids)
+        wall0, t0 = time.time(), self._now()
 
-        handle = send_future.result()
-        result_future = handle.get_result_async()
-        timeout = float(self.get_parameter("goal_timeout").value)
-        while not result_future.done():
-            if self._now() - t0 > timeout:
-                self.get_logger().warn(f"WP{wp['id']}: tiempo agotado, cancelando")
-                self._wait_future(handle.cancel_goal_async(), 5.0)
-                self._wait_future(result_future, 5.0)
-                break
-            time.sleep(0.05)
+        nav_status = None
+        send_future = self._nav_client.send_goal_async(nav_goal, feedback_callback=_feedback)
+        if self._wait_future(send_future, 10.0) and send_future.result() is not None \
+                and send_future.result().accepted:
+            handle = send_future.result()
+            result_future = handle.get_result_async()
+            timeout = float(self.get_parameter("goal_timeout").value)
+            while not result_future.done():
+                if self._now() - t0 > timeout:
+                    self.get_logger().warn(f"Goal {goal['id']}: tiempo agotado, cancelando")
+                    self._wait_future(handle.cancel_goal_async(), 5.0)
+                    self._wait_future(result_future, 5.0)
+                    break
+                time.sleep(0.05)
+            if result_future.done() and result_future.result() is not None:
+                nav_status = int(result_future.result().status)
+        else:
+            self.get_logger().error(f"Nav2 no aceptó el goal {goal['id']}")
 
-        out["time"] = self._now() - t0
-        out["recoveries"] = recoveries[0]
-        if result_future.done() and result_future.result() is not None:
-            out["nav_status"] = int(result_future.result().status)
-
-        self._sleep_sim(0.5)   # que el robot termine de detenerse
-        x, y, yaw = self._gt_pose()
-        out["pos_error"] = math.hypot(gx - x, gy - y)
-        out["yaw_error"] = abs(_ang_diff(gyaw, yaw))
-        out["within_tolerance"] = (
-            out["pos_error"] <= float(self.get_parameter("pos_tol").value)
-            and out["yaw_error"] <= float(self.get_parameter("yaw_tol").value))
-        self.get_logger().info(
-            f"WP{wp['id']}: status={out['nav_status']} "
-            f"err={out['pos_error']:.3f} m / {out['yaw_error']:.3f} rad "
-            f"{'OK' if out['within_tolerance'] else 'FUERA DE TOLERANCIA'} "
-            f"t={out['time']:.1f}s rec={out['recoveries']}")
-        return out
-
-    def run_once(self, index: int, out_dir: str) -> dict:
-        """Una corrida completa WP2..WPn. Devuelve el registro de la corrida."""
-        wall0 = time.time()
-        self._start_recording()
-        t_start = self._now()
-
-        wps = []
-        fail_reason = None
-        for wp in self._waypoints[1:]:      # WP1 es solo el spawn
-            r = self._go_to(wp)
-            wps.append(r)
-            if r["nav_status"] != GoalStatus.STATUS_SUCCEEDED:
-                fail_reason = f"nav2_fallo_wp{wp['id']}"
-                break                        # Nav2 abortó: la corrida ya falló
-
-        mission_time = self._now() - t_start
+        mission_time = self._now() - t0
         wall = time.time() - wall0
-        traj, path_len, collisions = self._stop_recording()
+        cpu1 = nm.cpu_snapshot(gz_pids)
         self._cmd_vel_pub.publish(Twist())
+        self._sleep_sim(0.5)                 # que el robot termine de detenerse
+        with self._lock:
+            self._recording = False
+            traj = np.array(self._traj, dtype=float).reshape(-1, 10)
+            plans = list(self._plans)
+            collisions = list(self._collisions)
+            map_msg = self._map_msg
 
-        if fail_reason is None and not all(w["within_tolerance"] for w in wps):
-            fail_reason = "fuera_de_tolerancia"
-        if collisions and fail_reason is None:
-            fail_reason = "colision"
+        gt = self._gt_pose()
+        pos_err = math.hypot(gx - gt[0], gy - gt[1])
+        yaw_err = abs(float(nm.wrap(gyaw - gt[2])))
+        within = (pos_err <= float(self.get_parameter("pos_tol").value)
+                  and yaw_err <= float(self.get_parameter("yaw_tol").value))
+        if nav_status != GoalStatus.STATUS_SUCCEEDED:
+            fail = "nav2_fallo" if nav_status is not None else "nav2_timeout_o_rechazo"
+        elif collisions:
+            fail = "colision"
+        elif not within:
+            fail = "fuera_de_tolerancia"
+        else:
+            fail = None
+        success = fail is None
 
-        traj_file = os.path.join(out_dir, f"run_{index:02d}_traj.csv")
-        with open(traj_file, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["t", "gt_x", "gt_y", "gt_yaw", "odom_x", "odom_y", "odom_yaw",
-                        "est_x", "est_y", "est_yaw"])
-            w.writerows(traj)
-
-        return {
-            "run": index,
-            "success": fail_reason is None,
-            "fail_reason": fail_reason,
-            "mission_time": mission_time,          # s simulados
-            "wall_time": wall,                     # s reales
+        sim_dt = max(mission_time, 1e-6)
+        ep = {
+            "run": run, "goal_id": goal["id"], "valid": True,
+            "success": success, "fail_reason": fail, "nav_status": nav_status,
+            "mission_time": mission_time, "wall_time": wall,
             "rtf": mission_time / wall if wall > 0 else None,
-            "path_length": path_len,               # m, verdad de terreno
-            "recoveries": sum(w["recoveries"] for w in wps),
-            "collisions": len(collisions),
-            "collision_events": collisions,
-            "waypoints": wps,
-            "trajectory_file": os.path.basename(traj_file),
+            "cpu_gazebo_per_sim_s": (cpu1[0] - cpu0[0]) / sim_dt if gz_pids else None,
+            "cpu_total_per_sim_s": (cpu1[1] - cpu0[1]) / sim_dt,
+            "shortest_path_length": goal["shortest_path_length"],
+            "final_pos_error": pos_err, "final_yaw_error": yaw_err,
+            "within_tolerance": within,
+            "recoveries": recoveries[0], "collisions": len(collisions),
+            "collision_events": collisions, "replans": max(0, len(plans) - 1),
+            "T_world_map": list(T_world_map), "T_world_odom": list(T_world_odom),
         }
+        ep.update(nm.episode_metrics(traj, plans, (gx, gy, gyaw), T_world_map,
+                                     T_world_odom, goal["shortest_path_length"], success))
+
+        name = f"run{run:02d}_goal{goal['id']}"
+        ep["files"] = {"trajectory": f"traj/{name}.csv", "plans": f"traj/{name}_plans.csv"}
+        nm.write_traj_csv(os.path.join(out_dir, ep["files"]["trajectory"]), traj)
+        nm.write_plans_csv(os.path.join(out_dir, ep["files"]["plans"]), plans)
+
+        ep.update({"map_iou": None, "map_iou_tol1": None, "map_wall_error_cm": None})
+        if self._loc == "slam" and map_msg is not None:
+            info = map_msg.info
+            origin = (info.origin.position.x, info.origin.position.y,
+                      _yaw_from_quat(info.origin.orientation))
+            ep.update(nm.map_quality(self._ref, map_msg.data, info.width, info.height,
+                                     info.resolution, origin, T_world_map))
+            ep["files"]["slam_map"] = f"slam_maps/{name}.yaml"
+            self._save_occupancy(map_msg, os.path.join(out_dir, "slam_maps"), name)
+
+        self.get_logger().info(
+            f"Run {run} goal {goal['id']}: {'ÉXITO' if success else 'FALLO (' + fail + ')'} "
+            f"t={mission_time:.1f}s L={ep['path_length'] or 0:.2f}m SPL={ep['spl']:.2f} "
+            f"err={pos_err:.3f}m/{yaw_err:.3f}rad CTE={_fmt(ep['cte_rmse'])} "
+            f"rec={recoveries[0]} col={len(collisions)}")
+        return ep
+
+    @staticmethod
+    def _save_occupancy(msg, folder, name):
+        """Guarda un OccupancyGrid como pgm + yaml (formato map_server, trinario)."""
+        os.makedirs(folder, exist_ok=True)
+        info = msg.info
+        data = np.array(msg.data, dtype=np.int16).reshape(info.height, info.width)
+        img = np.full(data.shape, 205, dtype=np.uint8)
+        img[(data >= 0) & (data <= 25)] = 254
+        img[data >= 65] = 0
+        with open(os.path.join(folder, f"{name}.pgm"), "wb") as f:
+            f.write(f"P5\n{info.width} {info.height}\n255\n".encode())
+            f.write(np.flipud(img).tobytes())
+        with open(os.path.join(folder, f"{name}.yaml"), "w") as f:
+            f.write(f"image: {name}.pgm\nmode: trinary\nresolution: {info.resolution}\n"
+                    f"origin: [{info.origin.position.x}, {info.origin.position.y}, "
+                    f"{_yaw_from_quat(info.origin.orientation)}]\n"
+                    "negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.25\n")
 
     # ── Rutina principal ──────────────────────────────────────────────────────
     def run(self):
         runs = int(self.get_parameter("runs").value)
         out_dir = self.get_parameter("output_dir").value or os.path.join(
-            os.path.expanduser("~"), "x3_plus_results",
-            time.strftime("%Y%m%d_%H%M%S"))
-        os.makedirs(out_dir, exist_ok=True)
+            os.getcwd(), "results", time.strftime("%Y%m%d_%H%M%S") + f"_{self._loc}")
+        for sub in ("traj", "reference_map"):
+            os.makedirs(os.path.join(out_dir, sub), exist_ok=True)
+        for fn in ("arena_map.yaml", "arena_map.pgm"):
+            shutil.copy(os.path.join(os.path.dirname(self._map_yaml), fn),
+                        os.path.join(out_dir, "reference_map", fn))
 
         t0 = time.time()
         while self._gt_pose() is None and time.time() - t0 < 15.0:
@@ -496,56 +582,64 @@ class WaypointRunner(Node):
         while not self._nav_client.wait_for_server(timeout_sec=1.0):
             self.get_logger().info("Esperando Nav2...")
 
+        gains = None
         if self.get_parameter("set_gains").value:
-            self.set_pid(self.get_parameter("kp").value,
-                         self.get_parameter("ki").value,
-                         self.get_parameter("kd").value)
+            gains = {k: float(self.get_parameter(k).value) for k in ("kp", "ki", "kd")}
+            self.set_pid(gains["kp"], gains["ki"], gains["kd"])
 
-        results = []
-        for i in range(1, runs + 1):
-            self.get_logger().info(f"── Corrida {i}/{runs} ──")
-            if not self.reset_robot():
-                results.append({"run": i, "success": False,
-                                "fail_reason": "reset_fallido", "valid": False})
-                continue
-            r = self.run_once(i, out_dir)
-            results.append(r)
-            self.get_logger().info(
-                f"Corrida {i}: {'ÉXITO' if r['success'] else 'FALLO (' + r['fail_reason'] + ')'} "
-                f"t={r['mission_time']:.1f}s L={r['path_length']:.2f}m "
-                f"colisiones={r['collisions']} recuperaciones={r['recoveries']}")
-            self._save(out_dir, results)
+        gz_pids = nm.gazebo_pids()
+        if not gz_pids:
+            self.get_logger().warn("No se encontraron procesos de Gazebo: no se medirá su CPU")
 
-        self._save(out_dir, results)
-        self.get_logger().info(f"Resultados guardados en {out_dir}")
-
-    def _save(self, out_dir: str, results: list):
-        valid = [r for r in results if r.get("valid", True)]
-        n = len(valid)
-        k = sum(1 for r in valid if r["success"])
-        lo, hi = wilson_interval(k, n)
-        summary = {
-            "simulator": "gazebo",
-            "world": WORLD_NAME,
-            "pos_tol": self.get_parameter("pos_tol").value,
-            "yaw_tol": self.get_parameter("yaw_tol").value,
-            # Ganancias aplicadas por este nodo; None = no se tocaron (las del nodo PID)
-            "pid_gains": ({k: self.get_parameter(k).value for k in ("kp", "ki", "kd")}
-                          if self.get_parameter("set_gains").value else None),
-            "n_runs": n,
-            "n_success": k,
-            "success_rate": k / n if n else None,
-            "wilson_95": [lo, hi] if n else None,
-            "waypoints": [{"id": w["id"], "x": w["x"], "y": w["y"], "yaw": w["yaw"]}
-                          for w in self._waypoints],
+        config = {
+            "simulator": "gazebo", "world": self._world, "localization": self._loc,
+            "runs": runs, "pos_tol": float(self.get_parameter("pos_tol").value),
+            "yaw_tol": float(self.get_parameter("yaw_tol").value),
+            "goal_timeout": float(self.get_parameter("goal_timeout").value),
+            "pid_gains": gains, "spawn": dict(zip(("x", "y", "yaw"), self._spawn)),
+            "goals": self._goals, "reference_map": "reference_map/arena_map.yaml",
+            "gazebo_pids": gz_pids, "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
+        episodes = []
+        for run in range(1, runs + 1):
+            for goal in self._goals:
+                self.get_logger().info(f"── Corrida {run}/{runs} — goal {goal['id']} ──")
+                align = self.reset_robot()
+                if align is None:
+                    episodes.append({"run": run, "goal_id": goal["id"], "valid": False,
+                                     "success": False, "fail_reason": "reset_fallido"})
+                else:
+                    episodes.append(self.run_episode(run, goal, *align, out_dir, gz_pids))
+                self._save(out_dir, config, episodes)
+
+        self._save(out_dir, config, episodes)
+        if self.get_parameter("make_plots").value:
+            try:
+                for p in nm.make_plots(out_dir, self._ref):
+                    self.get_logger().info(f"Gráfica: {p}")
+            except ImportError:
+                self.get_logger().warn("matplotlib no disponible: se omiten las gráficas")
+        o = nm.summarize(episodes)["overall"]
+        self.get_logger().info(
+            f"Terminado: {o['n_success']}/{o['n_episodes']} episodios exitosos "
+            f"(Wilson 95 % {o['wilson_95']}). Resultados en {out_dir}")
+
+    @staticmethod
+    def _save(out_dir, config, episodes):
         with open(os.path.join(out_dir, "results.json"), "w") as f:
-            json.dump({"summary": summary, "runs": results}, f, indent=2)
+            json.dump({"config": config, "summary": nm.summarize(episodes),
+                       "episodes": episodes}, f, indent=2)
+        nm.write_episodes_csv(os.path.join(out_dir, "episodes.csv"),
+                              [e for e in episodes if e.get("valid", True)])
+
+
+def _fmt(v):
+    return "—" if v is None else f"{v:.3f}m"
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = WaypointRunner()
+    node = NavExperiment()
 
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)

@@ -14,9 +14,11 @@ find_package(nav_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
-# Directorios a instalar (¡Aquí agregamos 'maps'!)
+# Directorios a instalar. (Se quitó 'metrics': la carpeta no existe en el
+# repositorio y hacía fallar colcon build en un clon limpio. Las métricas viven
+# en el módulo Python omni_dofbot_bringup/nav_metrics.py.)
 install(
-  DIRECTORY launch rviz world config maps metrics
+  DIRECTORY launch rviz world config maps
   DESTINATION share/${PROJECT_NAME}/
 )
 

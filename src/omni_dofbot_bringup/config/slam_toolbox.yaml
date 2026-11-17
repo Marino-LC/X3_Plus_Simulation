@@ -1,0 +1,45 @@
+# slam_toolbox.yaml — parámetros de slam_toolbox (modo mapping, asíncrono)
+# Lo usan launch/slam_toolbox.launch.py y arena_nav.launch.py (localization:=slam).
+# El mapa nace en la pose del robot al primer scan; waypoints_nav.py reinicia el
+# mapa en cada episodio (/slam_toolbox/reset) y lo alinea con el mundo.
+
+slam_toolbox:
+  ros__parameters:
+    use_sim_time: True
+ 
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+ 
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+    mode: mapping
+ 
+    resolution: 0.02
+    max_laser_range: 4.0
+    min_laser_range: 0.15
+    scan_buffer_maximum_scan_distance: 4.0
+    scan_buffer_size: 20
+ 
+    transform_publish_period: 0.02
+    map_update_interval: 0.5
+    minimum_time_interval: 0.1
+    minimum_travel_distance: 0.03
+    minimum_travel_heading: 0.03
+ 
+    use_scan_matching: true
+    use_scan_barycenter: true
+    distance_variance_penalty: 0.1
+    angle_variance_penalty: 0.1
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+    do_loop_closing: true
