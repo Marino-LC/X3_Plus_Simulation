@@ -360,9 +360,9 @@ class MecanumKinematicNode(Node):
         self.declare_parameter('control_rate',  100.0)   # igualado al firmware (10ms)
 
         # Ganancias PID — dominio mm/s -> PWM
-        self.declare_parameter('kp',            1.0)
-        self.declare_parameter('ki',            0.0)
-        self.declare_parameter('kd',            0.0)
+        self.declare_parameter('kp',            1.949)
+        self.declare_parameter('ki',            0.256)
+        self.declare_parameter('kd',            0.938)
         self.declare_parameter('pwm_max',       PWM_MAX_DOMINIO_A_DEFAULT)  # Dominio A — confirmado desde firmware (ver nota de diseño #4)
         self.declare_parameter('error_deadband_mm_s', ERROR_DEADBAND_MM_S_DEFAULT)
 
