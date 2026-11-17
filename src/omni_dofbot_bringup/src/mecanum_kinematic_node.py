@@ -242,8 +242,8 @@ class PIDController:
     donde err_k1 es el error del ciclo anterior y err_k2 el de dos ciclos
     atrás — igual a err_next/err_last en la nomenclatura del código C.
     """
-
-    def __init__(self, kp: float = 1.0, ki: float = 0.0, kd: float = 0.0,
+    
+    def __init__(self, kp: float = 1.949, ki: float = 0.256, kd: float = 0.938,
                  pwm_max: float = 1000.0, error_deadband: float = 0.0):
         self.kp = kp
         self.ki = ki
@@ -360,9 +360,9 @@ class MecanumKinematicNode(Node):
         self.declare_parameter('control_rate',  100.0)   # igualado al firmware (10ms)
 
         # Ganancias PID — dominio mm/s -> PWM
-        self.declare_parameter('kp',            1.0)
-        self.declare_parameter('ki',            0.0)
-        self.declare_parameter('kd',            0.0)
+        self.declare_parameter('kp',            1.949)
+        self.declare_parameter('ki',            0.256)
+        self.declare_parameter('kd',            0.938)
         self.declare_parameter('pwm_max',       PWM_MAX_DOMINIO_A_DEFAULT)  # Dominio A — confirmado desde firmware (ver nota de diseño #4)
         self.declare_parameter('error_deadband_mm_s', ERROR_DEADBAND_MM_S_DEFAULT)
 

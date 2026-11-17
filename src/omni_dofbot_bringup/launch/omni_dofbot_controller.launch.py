@@ -84,6 +84,12 @@ def generate_launch_description():
                 '/mono_camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
                 '/mono_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
                 '/imu@sensor_msgs/msg/Imu[gz.msgs.IMU',
+                # Verdad de terreno (plugin OdometryPublisher del URDF), marco del mundo
+                '/ground_truth/odom@nav_msgs/msg/Odometry[gz.msgs.Odometry',
+                # Sensores de contacto de arena_world.world (detección de colisiones)
+                *[f'/contacts/{m}@ros_gz_interfaces/msg/Contacts[gz.msgs.Contacts'
+                  for m in ('wall_north', 'wall_south', 'wall_east', 'wall_west',
+                            'obstacle_1', 'obstacle_2', 'pedestal')],
         ],
         output='screen'
     )
@@ -158,6 +164,23 @@ def generate_launch_description():
         output='screen'
     )
 
+    # ── Nodos de control propios ──────────────────────────────────────────────
+    # Cinemática inversa + PID incremental + modelo de motor
+    kinematic_node = Node(
+        package='omni_dofbot_bringup',
+        executable='mecanum_kinematic_node.py',
+        name='mecanum_kinematic_node',
+        output='screen',
+    )
+
+    # Cinemática directa + odometría (/odom y TF odom -> base_footprint)
+    odometry_node = Node(
+        package='omni_dofbot_bringup',
+        executable='Mecanum_odometry_node.py',
+        name='mecanum_odometry_node',
+        output='screen',
+    )
+
     config_arg = DeclareLaunchArgument(
         name='rvizconfig', default_value=rviz_config_path
     )
@@ -210,6 +233,13 @@ def generate_launch_description():
             event_handler=OnProcessExit(
                 target_action=spawner_jsb,
                 on_exit=[activate_wheels]
+            )
+        ),
+        # 6. Con las ruedas activas, arrancar cinemática y odometría
+        RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=activate_wheels,
+                on_exit=[kinematic_node, odometry_node]
             )
         ),
     ])

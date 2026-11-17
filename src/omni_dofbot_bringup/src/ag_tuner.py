@@ -69,10 +69,10 @@ class WaypointRunner(Node):
  
         # ── Parámetros ────────────────────────────────────────────────────────
         self.declare_parameter("runs", 1)
-        self.declare_parameter("set_gains", False)   # si False, no toca el PID
-        self.declare_parameter("kp", 1.949)
-        self.declare_parameter("ki", 0.256)
-        self.declare_parameter("kd", 0.938)
+        self.declare_parameter("set_gains", True)   # si False, no toca el PID
+        self.declare_parameter("kp", 1.949)          # Ganancia Proporcional definitiva
+        self.declare_parameter("ki", 0.256)         # Ganancia Integral definitiva
+        self.declare_parameter("kd", 0.938)         # Ganancia Derivativa definitiva
         self.declare_parameter("reset_between_runs", True)
  
         # ── Clientes ──────────────────────────────────────────────────────────

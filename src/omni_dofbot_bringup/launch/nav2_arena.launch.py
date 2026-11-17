@@ -162,24 +162,9 @@ def generate_launch_description():
         #    name='collision_monitor',
         #    parameters=[params_file],
         #    output='screen'
-        #),
+        #)
 
-        # 12. Relacionar base_link con base_footprint
-        # Este nodo se encarga de publicar una transformación estática entre los marcos
-        # de referencia 'base_link' y 'base_footprint'. Esto es útil para mantener 
-        # la coherencia entre los diferentes marcos de referencia del robot.
-        
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_footprint_tf',
-            parameters=[{'use_sim_time': True}],
-            arguments=[
-                '--x', '0', '--y', '0', '--z', '0',
-                '--roll', '0', '--pitch', '0', '--yaw', '0',
-                '--frame-id', 'base_link',
-                '--child-frame-id', 'base_footprint'
-            ],
-            output='screen'
-        )
+        # NOTA: aquí NO se publica ningún TF base_link <-> base_footprint.
+        # El URDF ya define base_footprint -> base_link (base_joint) y lo publica
+        # robot_state_publisher; un estático adicional creaba un ciclo en el árbol TF.
     ])

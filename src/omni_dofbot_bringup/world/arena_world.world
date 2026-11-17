@@ -11,9 +11,11 @@
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/> 
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
-    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
       <render_engine>ogre2</render_engine>
-    </plugin> 
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <!-- Necesario para los sensores de contacto de paredes/obstáculos (detección de colisiones) -->
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact"/>
 
     <gravity>0 0 -9.81</gravity>
     <physics type="ode">
@@ -88,6 +90,11 @@
         <visual name="v"><geometry><box><size>2.7 0.03 0.30</size></box></geometry>
           <material><ambient>0.7 0.7 0.7 0.6</ambient><diffuse>0.7 0.7 0.7 0.6</diffuse></material>
         </visual>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50</update_rate>
+          <contact><collision>c</collision><topic>/contacts/wall_north</topic></contact>
+        </sensor>
       </link>
     </model>
     <model name="wall_south">
@@ -97,6 +104,11 @@
         <visual name="v"><geometry><box><size>2.7 0.03 0.30</size></box></geometry>
           <material><ambient>0.7 0.7 0.7 0.6</ambient><diffuse>0.7 0.7 0.7 0.6</diffuse></material>
         </visual>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50</update_rate>
+          <contact><collision>c</collision><topic>/contacts/wall_south</topic></contact>
+        </sensor>
       </link>
     </model>
     <model name="wall_east">
@@ -106,6 +118,11 @@
         <visual name="v"><geometry><box><size>0.03 2.7 0.30</size></box></geometry>
           <material><ambient>0.7 0.7 0.7 0.6</ambient><diffuse>0.7 0.7 0.7 0.6</diffuse></material>
         </visual>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50</update_rate>
+          <contact><collision>c</collision><topic>/contacts/wall_east</topic></contact>
+        </sensor>
       </link>
     </model>
     <model name="wall_west">
@@ -115,6 +132,11 @@
         <visual name="v"><geometry><box><size>0.03 2.7 0.30</size></box></geometry>
           <material><ambient>0.7 0.7 0.7 0.6</ambient><diffuse>0.7 0.7 0.7 0.6</diffuse></material>
         </visual>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50</update_rate>
+          <contact><collision>c</collision><topic>/contacts/wall_west</topic></contact>
+        </sensor>
       </link>
     </model>
 
@@ -131,6 +153,11 @@
           <geometry><box><size>0.15 0.15 0.35</size></box></geometry>
           <material><ambient>0.8 0.2 0.2 1</ambient><diffuse>0.8 0.2 0.2 1</diffuse></material>
         </visual>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50</update_rate>
+          <contact><collision>collision</collision><topic>/contacts/obstacle_1</topic></contact>
+        </sensor>
       </link>
     </model>
 
@@ -147,6 +174,11 @@
           <geometry><box><size>0.15 0.15 0.35</size></box></geometry>
           <material><ambient>0.8 0.2 0.2 1</ambient><diffuse>0.8 0.2 0.2 1</diffuse></material>
         </visual>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50</update_rate>
+          <contact><collision>collision</collision><topic>/contacts/obstacle_2</topic></contact>
+        </sensor>
       </link>
     </model>
 
@@ -163,6 +195,11 @@
           <geometry><box><size>0.15 0.15 0.20</size></box></geometry>
           <material><ambient>0.3 0.3 0.8 1</ambient><diffuse>0.3 0.3 0.8 1</diffuse></material>
         </visual>
+        <sensor name="contact_sensor" type="contact">
+          <always_on>true</always_on>
+          <update_rate>50</update_rate>
+          <contact><collision>collision</collision><topic>/contacts/pedestal</topic></contact>
+        </sensor>
       </link>
     </model>
 
@@ -213,7 +250,7 @@
       <link name="link"><visual name="v"><geometry><sphere><radius>0.025</radius></sphere></geometry>
         <material><ambient>0.5 0 1 0.6</ambient><diffuse>0.5 0 1 0.6</diffuse></material></visual></link></model>
 
-    <model name="wp6"><static>true</static><pose>0.00 0.71 0.02 0 0 0</pose>
+    <model name="wp6"><static>true</static><pose>0.30 0.81 0.02 0 0 0</pose>
       <link name="link"><visual name="v"><geometry><sphere><radius>0.025</radius></sphere></geometry>
         <material><ambient>0 0.8 0.2 0.7</ambient><diffuse>0 0.8 0.2 0.7</diffuse></material></visual></link></model>
 

@@ -8,7 +8,7 @@
 #
 # Layout (vista superior, +Y = norte):
 #
-#   [META]  WP6 (0, +0.71)
+#   [PEDESTAL x=0,y=+0.81] ← WP6 [META] (+0.30, +0.81), yaw = pi
 #             |
 #   [O1 x=0,y=+0.25]
 #   WP5 (+0.38,+0.38) ←→ WP4 (-0.38,+0.13)
@@ -63,13 +63,16 @@ waypoints:
 
   - id: 6
     label: "meta_pedestal"
-    x:    0.00
-    y:    0.71
-    yaw:  0.00
+    x:    0.30
+    y:    0.81
+    yaw:  3.1416
     note: >
-      Posición de llegada frente al pedestal (en y=+0.81).
-      Offset de 0.10m para no colisionar. Orientado al norte
-      para que el brazo Dofbot apunte al cubo objetivo.
+      Meta al ESTE del pedestal (centro en x=0, y=+0.81), mirando al oeste
+      (yaw = pi) para que el brazo Dofbot apunte al cubo.
+      Frente del robot en x = 0.30 - 0.15 = 0.15 -> 0.075 m libres al pedestal.
+      La meta anterior (0, 0.71) era inalcanzable: quedaba a 0.025 m del borde
+      del pedestal (y=0.735), dentro del footprint, y el hueco entre O1 y el
+      pedestal (0.41 m) no permite girar un robot de 0.33 m de largo.
 
 
 obstacles:

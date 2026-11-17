@@ -99,25 +99,26 @@ controller_server:
       # ── Límites de velocidad: los validados en la batería P1-P3 ──
       min_vel_x: -0.40
       max_vel_x:  0.40
-      # Gazebo no desplaza lateralmente las mecanum (mallas sin rodillos) -> vy = 0 en simulación.
       # En el robot real (P1y validada a 0.40 m/s) usar:
       #   min_vel_y: -0.40 / max_vel_y: 0.40 / vy_samples: 10 / acc_lim_y: 0.6 / decel_lim_y: -0.6
-      min_vel_y: 0.0
-      max_vel_y: 0.0
+      min_vel_y: -40.0
+      max_vel_y: 40.0
       min_vel_theta: -1.0
       max_vel_theta:  1.0
-      min_speed_xy:   0.10
-      max_speed_xy:   0.40
-      min_speed_theta: 0.30
+      # Velocidad (magnitud) mínima para que el robot se mueva en conjunto (zona muerta de arranque)
+      # Utilizadas los valores de Tesis de Marino en Comparacion entre simulacion y hardware
+      min_speed_xy:   0.20
+      max_speed_xy:   0.40  
+      min_speed_theta: 0.20 
       # ── Aceleraciones: acotadas por motor_tau = 0.58 s (v/tau ≈ 0.4/0.58 ≈ 0.7 m/s²) ──
       acc_lim_x:      0.6
-      acc_lim_y:      0.0
+      acc_lim_y:      0.6
       acc_lim_theta:  1.5
       decel_lim_x:   -0.6
-      decel_lim_y:    0.0
+      decel_lim_y:   -0.6
       decel_lim_theta: -1.5
       vx_samples:     10
-      vy_samples:     1
+      vy_samples:     10
       vtheta_samples: 10
       sim_time: 1.5                      # cubre el retardo del motor (tau)
       linear_granularity: 0.05
@@ -136,9 +137,9 @@ controller_server:
       RotateToGoal.lookahead_time: -1.0
 
 # Footprint: ruedas a lx=0.110 / ly=0.102 desde el centro.
-#   x: lx + r = 0.110 + 0.040 = 0.150 (borde exterior de la rueda)
+#   x delantero: 0.15 ; x trasero: -0.18 (la malla base_link.STL llega a x = -0.176)
 #   y: ly + ~medio ancho de rueda ≈ 0.12
-# Verificar contra el URDF (bumpers, mástil, brazo en HOME).
+# Radio circunscrito = hypot(0.18, 0.12) ≈ 0.216 m -> inflation_radius 0.22.
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -151,7 +152,7 @@ local_costmap:
       width:  2
       height: 2
       resolution: 0.02
-      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.15, -0.12], [-0.15, 0.12] ]"
+      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.18, -0.12], [-0.18, 0.12] ]"
       # (antes había dos claves 'plugins'; YAML se queda con la última y se perdía la primera)
       plugins: ["obstacle_layer", "inflation_layer"]
       obstacle_layer:
@@ -171,7 +172,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 4.0
-        inflation_radius: 0.20          # radio circunscrito ≈ 0.19 m
+        inflation_radius: 0.22          # radio circunscrito ≈ 0.216 m
   local_costmap_client:
     ros__parameters:
       use_sim_time: True
@@ -189,7 +190,7 @@ global_costmap:
       global_frame: map # El valor del global frame no es odom, es map 
       robot_base_frame: base_footprint
       # Mismo footprint que el local (antes: robot_radius 0.15, inconsistente)
-      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.15, -0.12], [-0.15, 0.12] ]"
+      footprint: "[ [0.15, 0.12], [0.15, -0.12], [-0.18, -0.12], [-0.18, 0.12] ]"
       resolution: 0.02
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -214,7 +215,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 4.0
-        inflation_radius: 0.20
+        inflation_radius: 0.22
   global_costmap_client:
     ros__parameters:
       use_sim_time: True
