@@ -185,6 +185,7 @@ Los launch siguen funcionando por separado: `omni_dofbot_controller.launch.py` (
 | `output_dir` | `./results/<fecha>_<localización>` | Carpeta de resultados |
 | `goals_file` | `config/goals.yaml` instalado | Archivo de goals alternativo |
 | `make_plots` | `true` | Generar las gráficas al final |
+| `abort_on_collision` | `false` | Terminar el episodio en el primer contacto (ya cuenta como fallo) en vez de esperar la recuperación de Nav2 o el timeout |
 | `set_gains`, `kp`, `ki`, `kd` | `true`, 1.949, 0.256, 0.938 | Ganancias del AG que se fijan al arrancar |
 
 ### Qué hace cada episodio
@@ -287,7 +288,8 @@ En `summary`, cada métrica continua tiene media, desviación estándar, mediana
 
 **Cambios de esta versión sobre parámetros del equipo:**
 
-- `collision_monitor`: la zona de paro pasó de un círculo de 0.35 m a la huella del robot + 4 cm. Con el círculo, el robot se detenía a unos 17 cm de cualquier superficie y no podía llegar a goals junto a paredes u obstáculos.
+- **Colisiones con las esquinas (sobre todo O3).** DWB usaba el crítico `BaseObstacle`, que solo revisa el costo en el centro del robot; con una huella rectangular (radio circunscrito 0.216 m) la parte trasera golpeaba las esquinas al girar. Ahora usa `ObstacleFootprint`, que revisa la huella completa. Además, la inflación de ambos costmaps pasó de 0.22 m (`cost_scaling_factor` 4.0) a 0.35 m (3.0), para que NavFn deje margen al rodear esquinas.
+- **Robot congelado tras un choque.** El `collision_monitor` usaba una zona `stop` (primero un círculo de 0.35 m, luego la huella + 4 cm). En Nav2 un `stop` bloquea cualquier velocidad mientras haya puntos dentro, incluidos el retroceso y el giro de las recuperaciones, así que el robot quedaba congelado tras tocar un obstáculo. Ahora usa el modo `approach` sobre la huella publicada por el costmap: reduce la velocidad solo si el movimiento pedido llevaría a chocar, de modo que alejarse sigue permitido.
 - Cadena de `cmd_vel`: antes el controlador y el `collision_monitor` publicaban los dos en `cmd_vel`, y el velocity_smoother leía `cmd_vel`, formando un ciclo. Ahora sigue la cadena estándar de Nav2 (sección 2).
 - `max_vel_y` / `min_vel_y` pasaron de ±40.0 a ±0.40, que es el valor que indica el comentario del archivo.
 - `CMakeLists.txt` instalaba una carpeta `metrics` que no existe en el repositorio, lo que hace fallar `colcon build` en un clon limpio; se quitó.

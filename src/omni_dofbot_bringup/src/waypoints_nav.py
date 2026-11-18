@@ -111,6 +111,9 @@ class NavExperiment(Node):
         self.declare_parameter("goals_file", "")       # vacío = config/goals.yaml del paquete
         self.declare_parameter("output_dir", "")       # vacío = ./results/<fecha>_<loc>
         self.declare_parameter("make_plots", True)
+        # Si es True, el episodio termina en el primer contacto (ya cuenta como
+        # fallo) en lugar de esperar a que Nav2 se recupere o venza el timeout.
+        self.declare_parameter("abort_on_collision", False)
         self.declare_parameter("set_gains", True)      # fija las ganancias del AG
         self.declare_parameter("kp", 1.949)            # Ganancia Proporcional definitiva
         self.declare_parameter("ki", 0.256)            # Ganancia Integral definitiva
@@ -463,9 +466,15 @@ class NavExperiment(Node):
             handle = send_future.result()
             result_future = handle.get_result_async()
             timeout = float(self.get_parameter("goal_timeout").value)
+            abort_on_collision = bool(self.get_parameter("abort_on_collision").value)
             while not result_future.done():
+                reason = None
                 if self._now() - t0 > timeout:
-                    self.get_logger().warn(f"Goal {goal['id']}: tiempo agotado, cancelando")
+                    reason = "tiempo agotado"
+                elif abort_on_collision and self._collisions:
+                    reason = "colisión"
+                if reason:
+                    self.get_logger().warn(f"Goal {goal['id']}: {reason}, cancelando")
                     self._wait_future(handle.cancel_goal_async(), 5.0)
                     self._wait_future(result_future, 5.0)
                     break
@@ -492,10 +501,10 @@ class NavExperiment(Node):
         yaw_err = abs(float(nm.wrap(gyaw - gt[2])))
         within = (pos_err <= float(self.get_parameter("pos_tol").value)
                   and yaw_err <= float(self.get_parameter("yaw_tol").value))
-        if nav_status != GoalStatus.STATUS_SUCCEEDED:
+        if collisions:
+            fail = "colision"                # causa primaria aunque Nav2 haya abortado
+        elif nav_status != GoalStatus.STATUS_SUCCEEDED:
             fail = "nav2_fallo" if nav_status is not None else "nav2_timeout_o_rechazo"
-        elif collisions:
-            fail = "colision"
         elif not within:
             fail = "fuera_de_tolerancia"
         else:

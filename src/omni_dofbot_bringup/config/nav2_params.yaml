@@ -126,8 +126,12 @@ controller_server:
       transform_tolerance: 0.3
       xy_goal_tolerance: 0.09            # igual que goal_checker
       short_circuit_trajectory_eval: true
-      critics: ["RotateToGoal","Oscillation","BaseObstacle","GoalAlign","PathAlign","PathDist","GoalDist"]
-      BaseObstacle.scale: 0.02
+      # ObstacleFootprint (no BaseObstacle): BaseObstacle solo revisa el costo en el
+      # CENTRO del robot, y con una huella rectangular (radio circunscrito 0.216 m)
+      # la parte trasera golpeaba las esquinas de O3 al girar. ObstacleFootprint
+      # descarta toda trayectoria en la que la huella completa toque celdas letales.
+      critics: ["RotateToGoal","Oscillation","ObstacleFootprint","GoalAlign","PathAlign","PathDist","GoalDist"]
+      ObstacleFootprint.scale: 0.02
       PathAlign.scale:    32.0
       GoalAlign.scale:    24.0
       PathDist.scale:     32.0
@@ -139,7 +143,9 @@ controller_server:
 # Footprint: ruedas a lx=0.110 / ly=0.102 desde el centro.
 #   x delantero: 0.15 ; x trasero: -0.18 (la malla base_link.STL llega a x = -0.176)
 #   y: ly + ~medio ancho de rueda ≈ 0.12
-# Radio circunscrito = hypot(0.18, 0.12) ≈ 0.216 m -> inflation_radius 0.22.
+# Radio circunscrito = hypot(0.18, 0.12) ≈ 0.216 m. La inflación llega a 0.35 m con
+# caída suave (cost_scaling_factor 3.0) para que NavFn, que planifica para un punto,
+# deje margen al rodear esquinas: a 0.216 m de un obstáculo el costo es ~190/253.
 local_costmap:
   local_costmap:
     ros__parameters:
@@ -171,8 +177,8 @@ local_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.22          # radio circunscrito ≈ 0.216 m
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35          # > radio circunscrito (0.216 m), ver nota arriba
   local_costmap_client:
     ros__parameters:
       use_sim_time: True
@@ -214,8 +220,8 @@ global_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.22
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35
   global_costmap_client:
     ros__parameters:
       use_sim_time: True
@@ -315,18 +321,24 @@ collision_monitor:
     source_timeout: 5.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    # Zona de paro = huella del robot + 4 cm. (Antes: círculo de 0.35 m, que paraba
-    # al robot a ~17 cm de cualquier superficie e impedía llegar a goals junto a
-    # paredes u obstáculos.) Si el LiDAR detecta partes del propio robot (mástil,
-    # brazo) dentro de este polígono, el robot no avanzará: ver README.
-    polygons: ["PolygonStop"]
-    PolygonStop:
+    # Modo "approach" sobre la huella publicada por el costmap: simula la velocidad
+    # pedida durante time_before_collision y la reduce (hasta 0) si la huella
+    # chocaría. Moverse ALEJÁNDOSE de un obstáculo sigue permitido, así que las
+    # recuperaciones (retroceso, giro) pueden sacar al robot de un contacto.
+    # (Antes: polígono "stop" huella + 4 cm. En Nav2 un "stop" bloquea cualquier
+    # velocidad mientras haya puntos dentro, y el robot quedaba congelado tras
+    # tocar un obstáculo.) Los puntos a menos de 2 cm de la huella ya los quita
+    # scan_self_filter.py, por lo que nunca hay puntos "dentro" de la huella.
+    polygons: ["FootprintApproach"]
+    FootprintApproach:
       type: "polygon"
-      points: "[[0.19, 0.16], [0.19, -0.16], [-0.22, -0.16], [-0.22, 0.16]]"
-      action_type: "stop"
+      action_type: "approach"
+      footprint_topic: "/local_costmap/published_footprint"
+      time_before_collision: 1.0
+      simulation_time_step: 0.05
       min_points: 4
       visualize: True
-      polygon_pub_topic: "polygon_stop"
+      polygon_pub_topic: "footprint_approach"
       enabled: True
     observation_sources: ["scan"]
     scan:
