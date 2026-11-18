@@ -29,6 +29,16 @@ ROBOT_NAME = 'omni_dofbot'        # eval.yaml: robot_name
 
 def generate_launch_description():
     pkg_desc = get_package_share_directory('omni_dofbot_description')
+    
+    # Ruta opcional para la configuración de RViz (puedes ajustarla o dejarla genérica si tu paquete la incluye)
+    try:
+        rviz_config_path = os.path.join(
+            get_package_share_directory('omni_dofbot_bringup'),
+            'rviz', 'omni_dofbot_trayectory_rviz.rviz'
+        )
+    except Exception:
+        rviz_config_path = ''
+
     urdf = os.path.join(pkg_desc, 'urdf', 'omni_dofbot_vla.xacro')
     trial_dir = LaunchConfiguration('trial_dir')
     world = PathJoinSubstitution([trial_dir, 'scene.world'])
@@ -80,11 +90,14 @@ def generate_launch_description():
     def after(prev, nxt):
         return RegisterEventHandler(OnProcessExit(target_action=prev, on_exit=[nxt]))
 
+    # Argumento para RViz configurado con su archivo si existe, y activado por defecto a 'true'
+    rviz_args = ['-d', rviz_config_path] if rviz_config_path and os.path.exists(rviz_config_path) else []
+
     return LaunchDescription([
         DeclareLaunchArgument('trial_dir', description='Ensayo con scene.world y scene_gt.yaml'),
         DeclareLaunchArgument('x', default_value='0.0'),
         DeclareLaunchArgument('y', default_value='0.0'),
-        DeclareLaunchArgument('rviz', default_value='false'),
+        DeclareLaunchArgument('rviz', default_value='true', description='Lanzar RViz2 junto a la simulación'),
         DeclareLaunchArgument('gz_extra_args', default_value='',
                               description="p. ej. '-s' para Gazebo sin interfaz gráfica"),
         SetEnvironmentVariable('GZ_SIM_RESOURCE_PATH',
@@ -94,7 +107,7 @@ def generate_launch_description():
         gazebo, spawn, bridge,
         Node(package='vla_pose_eval', executable='ground_truth_publisher', output='screen',
              parameters=[{'trial_dir': trial_dir}]),
-        Node(package='rviz2', executable='rviz2', parameters=[{'use_sim_time': True}],
+        Node(package='rviz2', executable='rviz2', arguments=rviz_args, parameters=[{'use_sim_time': True}],
              condition=IfCondition(LaunchConfiguration('rviz'))),
         after(spawn, wheels), after(wheels, arm), after(arm, gripper), after(gripper, jsb),
         after(jsb, activate_wheels),

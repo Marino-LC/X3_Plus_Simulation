@@ -39,7 +39,7 @@
   <joint name="base_camera_joint" type="fixed">
       <parent link="mono_link" />
       <child link="monocular_camera_link" />
-      <origin xyz="0 0 0" rpy="3.14 -1.57 0"/>
+      <origin xyz="0 0 0" rpy="3.14 -1.57 3.14"/>
   </joint>
 
   <!-- MONOCULAR CAMERA -->
