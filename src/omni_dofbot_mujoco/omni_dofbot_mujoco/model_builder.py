@@ -201,7 +201,10 @@ def build_xml(p=None, world="arena", meshdir=None, chassis_mass=1.0):
     robot.append(base)
 
     # Geoms: se conservan solo los visuales; las mallas de colisión se quitan.
-    for parent in list(base.iter()) + [base]:
+    # base.iter() ya incluye a `base`: cada elemento se procesa UNA vez. (Antes se
+    # añadía `base` otra vez y la 2a pasada borraba la malla del chasis, que ya
+    # no tenía contype tras la 1a, por eso el chasis no se veía.)
+    for parent in list(base.iter()):
         for g in list(parent.findall("geom")):
             if g.get("contype") == "0":
                 for k in ("contype", "conaffinity", "group", "density"):

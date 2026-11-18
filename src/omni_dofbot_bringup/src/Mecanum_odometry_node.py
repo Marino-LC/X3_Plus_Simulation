@@ -40,6 +40,8 @@ NOTA SOBRE LA POLARIDAD:
 import math
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TransformStamped
@@ -66,7 +68,9 @@ WHEEL_JOINTS = [
 class MecanumOdometryNode(Node):
 
     def __init__(self):
-        super().__init__('mecanum_odometry_node')
+        super().__init__(
+            'mecanum_odometry_node',
+            parameter_overrides=[Parameter('use_sim_time', Parameter.Type.BOOL, True)])
 
         # ── Parámetros ────────────────────────────────────────────────────────
         self.declare_parameter('wheel_radius', 0.040)
@@ -75,12 +79,19 @@ class MecanumOdometryNode(Node):
         self.declare_parameter('odom_frame',   'odom')
         self.declare_parameter('base_frame',   'base_footprint')
         self.declare_parameter('publish_tf',   True)
+        self.declare_parameter('initial_x',   0.0)
+        self.declare_parameter('initial_y',   0.0)
+        self.declare_parameter('initial_yaw', RESET_YAW)
 
         # ── Estado interno ────────────────────────────────────────────────────
         self._x          = 0.0
         self._y          = 0.0
         self._yaw        = RESET_YAW   # arranca ya alineado con el teleport del AG
         self._last_stamp = None        # se inicializa en el primer callback
+        self._x          = self.get_parameter('initial_x').value
+        self._y          = self.get_parameter('initial_y').value
+        self._yaw        = self.get_parameter('initial_yaw').value
+        self._last_stamp = None
 
         # ── TF broadcaster ────────────────────────────────────────────────────
         self._tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -110,7 +121,9 @@ class MecanumOdometryNode(Node):
     # ── Callback del servicio de reset ────────────────────────────────────────
     def _reset_cb(self, request, response):
         """Reinicia la odometría a la pose fija del teleport del AG (0, 0, π/2)."""
-        self.reset_pose(x=0.0, y=0.0, yaw=RESET_YAW)
+        self.reset_pose(x=self.get_parameter('initial_x').value,
+                    y=self.get_parameter('initial_y').value,
+                    yaw=self.get_parameter('initial_yaw').value)
         return response
 
     # ── Cinemática directa + integración ─────────────────────────────────────
@@ -140,7 +153,7 @@ class MecanumOdometryNode(Node):
         wz = r / (4.0 * k) * (-w0 + w1 + w2 - w3)
 
         # ── Integración temporal ──────────────────────────────────────────────
-        now = self.get_clock().now()
+        now = Time.from_msg(msg.header.stamp)
         if self._last_stamp is None:
             self._last_stamp = now
             return

@@ -8,7 +8,8 @@ mecanum_kinematic_node.py y Mecanum_odometry_node.py corran SIN cambios.
 
 PUBLICA:
   /clock                 (rosgraph_msgs/Clock)    tiempo de simulación
-  /joint_states          (sensor_msgs/JointState) ruedas, brazo y gripper
+  /joint_states          (sensor_msgs/JointState) ruedas, brazo y gripper,
+                          con header.stamp = tiempo de simulación
   /ground_truth/odom     (nav_msgs/Odometry)      pose real del chasis (nuevo)
 
 SUSCRIBE:
@@ -26,11 +27,15 @@ PARÁMETROS:
   model_path        : MJCF a cargar ('' = models/omni_dofbot_arena.xml)
   world_name        : nombre del mundo en el servicio   (default: arena_pid_tuning)
   robot_name        : entidad aceptada en el servicio   (default: omni_dofbot)
-  real_time_factor  : 1.0 = tiempo real (obligatorio mientras el AG use
-                      time.time()); <= 0 = tan rápido como se pueda
+  real_time_factor  : 1.0 = tiempo real (necesario con ROS real: el AG mide el
+                      RTF y descarta evaluaciones con RTF < 0.9); <= 0 = tan
+                      rápido como se pueda
   state_rate        : Hz de /joint_states y /ground_truth/odom (default: 100)
   clock_decimation  : publicar /clock cada N pasos de física  (default: 1)
   viewer            : abrir el visor de MuJoCo                (default: false)
+  autostart         : lanzar el hilo de simulación (default: true). El modo en
+                      paso fijo (omni_dofbot_mujoco.lockstep) lo pone en false
+                      y llama a step_once() él mismo.
 """
 import os
 import threading
@@ -57,7 +62,7 @@ except ImportError:          # el AG lo necesita; el puente arranca igual sin é
 
 class MujocoBridge(Node):
 
-    def __init__(self):
+    def __init__(self, sim=None):
         super().__init__('mujoco_bridge_node')
         self.declare_parameter('model_path', '')
         self.declare_parameter('world_name', 'arena_pid_tuning')
@@ -66,15 +71,22 @@ class MujocoBridge(Node):
         self.declare_parameter('state_rate', 100.0)
         self.declare_parameter('clock_decimation', 1)
         self.declare_parameter('viewer', False)
+        self.declare_parameter('autostart', True)
 
-        path = self.get_parameter('model_path').value or os.path.join(
-            models_dir(), 'omni_dofbot_arena.xml')
-        self.sim = MujocoSim(model=path)
+        if sim is None:
+            path = self.get_parameter('model_path').value or os.path.join(
+                models_dir(), 'omni_dofbot_arena.xml')
+            sim = MujocoSim(model=path)
+        else:
+            path = '(MujocoSim dado)'
+        self.sim = sim
         self._lock = threading.Lock()
         self._rtf = float(self.get_parameter('real_time_factor').value)
         self._state_dt = 1.0 / float(self.get_parameter('state_rate').value)
         self._clock_dec = max(1, int(self.get_parameter('clock_decimation').value))
         self._robot = self.get_parameter('robot_name').value
+        self._steps = 0
+        self._next_state = 0.0
 
         self._clock_pub = self.create_publisher(Clock, '/clock', 10)
         self._js_pub = self.create_publisher(JointState, '/joint_states', 10)
@@ -100,9 +112,11 @@ class MujocoBridge(Node):
                 '(sudo apt install ros-$ROS_DISTRO-ros-gz-interfaces)')
         self.create_service(Empty, '~/reset', self._reset_cb)
 
-        self._running = True
-        self._thread = threading.Thread(target=self._sim_loop, daemon=True)
-        self._thread.start()
+        self._running = False
+        if self.get_parameter('autostart').value:
+            self._running = True
+            self._thread = threading.Thread(target=self._sim_loop, daemon=True)
+            self._thread.start()
         self.get_logger().info(
             f'MuJoCo listo: {path} | dt={self.sim.model.opt.timestep} s | '
             f'RTF objetivo={self._rtf}')
@@ -110,8 +124,7 @@ class MujocoBridge(Node):
     # ── Callbacks ROS ─────────────────────────────────────────────────────────
     def _wheel_cb(self, msg):
         if len(msg.data) != 4:
-            self.get_logger().warn('Se esperaban 4 velocidades [fl, fr, br, bl]',
-                                   throttle_duration_sec=2.0)
+            self.get_logger().warn('Se esperaban 4 velocidades [fl, fr, br, bl]')
             return
         with self._lock:
             self.sim.set_wheel_commands(list(msg.data))
@@ -142,31 +155,51 @@ class MujocoBridge(Node):
             self._resync()
         return res
 
-    # ── Lazo de simulación ────────────────────────────────────────────────────
+    # ── Paso de simulación (compartido por el hilo y el modo en paso fijo) ───
     def _resync(self):
         self._wall0, self._sim0 = time.perf_counter(), self.sim.time
 
     def _stamp(self):
-        return Time(nanoseconds=int(self.sim.time * 1e9)).to_msg()
+        return Time(nanoseconds=int(round(self.sim.time * 1e9))).to_msg()
 
-    def _publish_state(self):
+    def _state_msgs(self):
         stamp = self._stamp()
         names, q, v = self.sim.joint_state()
         js = JointState()
         js.header.stamp = stamp
-        js.name, js.position, js.velocity = names, q.tolist(), v.tolist()
+        js.name, js.position, js.velocity = list(names), q.tolist(), v.tolist()
         pos, quat, lin, ang = self.sim.ground_truth()
         od = Odometry()
         od.header.stamp = stamp
         od.header.frame_id = 'world'
         od.child_frame_id = 'base_footprint'
         pp, oo = od.pose.pose.position, od.pose.pose.orientation
-        pp.x, pp.y, pp.z = pos.tolist()
-        oo.w, oo.x, oo.y, oo.z = quat.tolist()
+        pp.x, pp.y, pp.z = (float(v) for v in pos)
+        oo.w, oo.x, oo.y, oo.z = (float(v) for v in quat)
         tl, ta = od.twist.twist.linear, od.twist.twist.angular
-        tl.x, tl.y, tl.z = lin.tolist()
-        ta.x, ta.y, ta.z = ang.tolist()
-        return js, od
+        tl.x, tl.y, tl.z = (float(v) for v in lin)
+        ta.x, ta.y, ta.z = (float(v) for v in ang)
+        return [(self._js_pub, js), (self._gt_pub, od)]
+
+    def _advance(self):
+        """Un paso de física. Devuelve los mensajes a publicar (sin publicarlos)."""
+        out = []
+        self.sim.step()
+        self._steps += 1
+        if self._steps % self._clock_dec == 0:
+            out.append((self._clock_pub, Clock(clock=self._stamp())))
+        if self.sim.time >= self._next_state - 1e-9:
+            self._next_state = self.sim.time + self._state_dt
+            out.extend(self._state_msgs())
+        return out
+
+    def step_once(self):
+        """Avanza un paso de física y publica /clock, /joint_states y
+        /ground_truth/odom cuando toca. Lo usa el modo en paso fijo."""
+        with self._lock:
+            out = self._advance()
+        for pub, msg in out:
+            pub.publish(msg)
 
     def _sim_loop(self):
         viewer = None
@@ -174,8 +207,7 @@ class MujocoBridge(Node):
             import mujoco.viewer
             viewer = mujoco.viewer.launch_passive(self.sim.model, self.sim.data)
         self._resync()
-        next_state, next_view, steps, rtf_t = 0.0, 0.0, 0, time.perf_counter()
-        rtf_sim = self.sim.time
+        next_view, rtf_t, rtf_sim = 0.0, time.perf_counter(), self.sim.time
         while self._running and rclpy.ok():
             out = []
             with self._lock:
@@ -188,24 +220,13 @@ class MujocoBridge(Node):
                     target = self.sim.time + 0.01
                 n = 0
                 while self.sim.time < target and n < 100:
-                    self.sim.step()
+                    out.extend(self._advance())
                     n += 1
-                    steps += 1
-                    if steps % self._clock_dec == 0:
-                        out.append(Clock(clock=self._stamp()))
-                    if self.sim.time >= next_state:
-                        next_state = self.sim.time + self._state_dt - 1e-9
-                        out.extend(self._publish_state())
                 if viewer is not None and time.perf_counter() >= next_view:
                     viewer.sync()
                     next_view = time.perf_counter() + 1 / 30
-            for msg in out:
-                if isinstance(msg, Clock):
-                    self._clock_pub.publish(msg)
-                elif isinstance(msg, JointState):
-                    self._js_pub.publish(msg)
-                else:
-                    self._gt_pub.publish(msg)
+            for pub, msg in out:
+                pub.publish(msg)
             now = time.perf_counter()
             if now - rtf_t > 10.0:
                 self.get_logger().info(
@@ -219,7 +240,8 @@ class MujocoBridge(Node):
 
     def destroy_node(self):
         self._running = False
-        self._thread.join(timeout=1.0)
+        if hasattr(self, '_thread'):
+            self._thread.join(timeout=1.0)
         super().destroy_node()
 
 

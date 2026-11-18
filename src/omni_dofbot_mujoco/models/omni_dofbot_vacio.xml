@@ -51,6 +51,7 @@
       <freejoint name="root" />
       <camera name="seguimiento" pos="0 -1.2 0.9" xyaxes="1 0 0 0 0.6 0.8" mode="trackcom" />
       <body pos="0 0 0.0815" name="base_link">
+        <geom pos="0.05 0 0.02" quat="1 0 0 0" type="mesh" rgba="0 0.7 0 1" mesh="base_link_omni_dofbot" class="visual" />
         <body name="front_right_wheel" pos="0.11 -0.1045 -0.0389" quat="9.38418e-07 -9.37953e-07 -0.706931 0.707282">
           <inertial pos="1.9051e-06 -2.3183e-07 -0.00064079" quat="0.581528 0.402304 -0.581574 0.40218" mass="0.051532" diaginertia="2.4264e-05 1.45952e-05 1.45938e-05" />
           <joint name="front_right_joint" class="wheel" />

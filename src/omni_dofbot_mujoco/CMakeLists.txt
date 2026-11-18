@@ -19,6 +19,7 @@ install(PROGRAMS
   scripts/friction_sweep.py
   scripts/plano_inclinado.py
   scripts/view.py
+  scripts/run_ag_mujoco.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

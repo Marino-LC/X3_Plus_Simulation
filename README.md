@@ -11,15 +11,16 @@ La especificación de partida es la guía
 resume esas especificaciones tal como quedaron implementadas y da los protocolos
 para ejecutarlas.
 
-## Estado (14 nov 2026, MuJoCo 4.0.1)
+## Estado (18 nov 2026, MuJoCo 4.0.1)
 
 | Parte | Estado |
 |---|---|
-| Modelo con rodillos libres, actuadores, masa 4.8 kg | Implementado |
-| Arena de 2.42 × 2.42 m (mismos materiales que `arena_pid_tuning.world`) | Implementada |
+| Modelo con rodillos libres, actuadores, masa 4.8 kg | Implementado; chasis visible otra vez (ver nota) |
+| Arena de 2.42 × 2.42 m, igual en MuJoCo y en `arena_pid_tuning.world` | Implementada |
 | T1–T5, T7, T8, T9 (sin ROS) | **Pasan** con los parámetros de partida (resultados abajo) |
-| Puente ROS 2 (`mujoco_bridge_node.py`) y launch | Escritos, **sin probar con ROS 2** (el entorno donde se generó no tiene ROS) |
-| T6, T10, AG de humo y AG completo | Pendientes: requieren ROS 2 + Gazebo (protocolo abajo) |
+| AG de Gazebo (`ag_motion_tests.py` sin modificar) sobre MuJoCo, sin ROS | **Funciona**: batería P1–P4 y AG de humo probados (sección [AG en MuJoCo](#ag-en-mujoco-sin-ros-misma-lógica-que-gazebo)) |
+| Puente ROS 2 (`mujoco_bridge_node.py`) | Probado dentro del modo sin ROS; **sin probar con ROS 2 real** |
+| T6, T10, AG completo | Pendientes |
 | Calibración con hardware (sección 9 de la guía) | Pendiente; hay herramientas listas |
 
 ## Estructura del repositorio
@@ -35,6 +36,8 @@ src/                              workspace ROS 2 (colcon build desde la raíz)
       params.py                       parámetros (única fuente de verdad)
       model_builder.py                generador del MJCF
       sim.py                          núcleo: paso, comandos, teletransporte, ground truth
+      fake_ros.py                     ROS 2 mínimo en proceso (para correr los nodos reales sin ROS)
+      lockstep.py                     AG + nodos reales + puente sobre MuJoCo en paso fijo
     models/
       assets/                         mallas STL
       x3plus_rodillos_fijos.xml       conversión directa del URDF (base del generador)
@@ -46,10 +49,13 @@ src/                              workspace ROS 2 (colcon build desde la raíz)
       friction_sweep.py               tabla mu x amortiguamiento del rodillo
       plano_inclinado.py              plano inclinado virtual (calibración)
       view.py                         visor interactivo sin ROS
+      run_ag_mujoco.py                AG de Gazebo sobre MuJoCo, sin ROS
     src/mujoco_bridge_node.py       puente ROS 2
     launch/mujoco_ag.launch.py      puente + nodo cinemático + odometría
-    test/test_acceptance.py         las mismas pruebas con pytest
+    test/test_acceptance.py         T1–T9 con pytest
+    test/test_ag_lockstep.py        AG sobre MuJoCo: batería, determinismo, teletransporte
   omni_dofbot_bringup/            AG, ZN, nodo cinemático, odometría, mundos Gazebo
+                                  (versión final de la sintonización; ver su README.md)
   omni_dofbot_description/ ...    URDF y paquetes Gazebo (sin cambios; ver src/README.md)
   omni_description_mujoco/        referencia: rueda CAD de 9 rodillos (COLCON_IGNORE)
 ```
@@ -107,6 +113,11 @@ Notas:
   supuesto: hay que sustituirlo por el centro de masa e inercias reales.
 - **Colisiones.** Solo chocan rodillos y chasis contra piso y paredes. El brazo
   no tiene geometría de colisión.
+- **Chasis invisible (corregido el 18 nov).** El generador procesaba dos veces
+  las geometrías que cuelgan directo de `base_link`, y en la segunda pasada
+  borraba la malla verde del chasis (`base_link_omni_dofbot`). Era solo visual:
+  la masa y la colisión del chasis no cambian. Si tienen XML generados antes,
+  regenérenlos con `build_model.py`.
 
 ### Arena (`omni_dofbot_arena.xml`)
 
@@ -123,9 +134,10 @@ la prueba P4 recorre 0.80 m en lateral desde el origen (hacia −X del mundo, co
 el robot en yaw = π/2), y eso no cabe en una arena de 1.22 m de ancho. Con
 2.42 m quedan unos 0.28 m entre el robot y la pared al final de P4.
 
-El `arena_pid_tuning.world` que está en este repositorio todavía mide
-1.22 × 2.42 m: para que T10 compare lo mismo, Gazebo debe usar un mundo de
-2.42 × 2.42 m. Las dimensiones se cambian con `build_model.py --arena_x ... --arena_y ...`.
+`src/omni_dofbot_bringup/world/arena_pid_tuning.world` también se amplió a
+2.42 × 2.42 m (piso y paredes este/oeste en ±1.215 m), para que Gazebo y MuJoCo
+usen la misma arena. Las dimensiones de MuJoCo se cambian con
+`build_model.py --arena_x ... --arena_y ...`.
 
 ### Interfaces ROS 2 del puente
 
@@ -153,7 +165,13 @@ las ruedas y no ve el deslizamiento: el error de posición real se mide con
 python3 -m pip install mujoco numpy pytest
 ```
 
-### Con ROS 2 Jazzy — para el puente, T6, T10 y el AG
+Para el AG sobre MuJoCo sin ROS, además:
+
+```bash
+python3 -m pip install deap matplotlib plotly
+```
+
+### Con ROS 2 Jazzy — para el puente, T6 y T10
 
 En Ubuntu 24.04 `pip` necesita `--break-system-packages` (igual que `deap`):
 
@@ -323,11 +341,107 @@ Criterio: curvas vx(t), vy(t), x(t), y(t) y yaw(t) comparables; reportar el RMSE
 `/ground_truth/odom` solo existe en MuJoCo, así que la comparación directa se
 hace con `/odom`.
 
-### AG de humo y AG completo
+## AG en MuJoCo sin ROS (misma lógica que Gazebo)
 
-`ag_motion_tests.py` fija el tamaño en dos constantes (`POP_SIZE` y `N_GEN`);
-no tiene parámetros de línea de comandos. Para el AG de humo hay
-que ponerlas temporalmente en 8 y 3.
+No hace falta correr la sintonización al mismo tiempo que Gazebo, pero sí con la
+misma lógica. Por eso no se reescribió el AG: `run_ag_mujoco.py` carga **los
+archivos reales, sin modificarlos**, y los conecta con MuJoCo en el mismo proceso:
+
+| Pieza | Archivo que se ejecuta |
+|---|---|
+| AG (DEAP), batería P1–P4, costos, rondas con semilla, gráficas y JSON | `omni_dofbot_bringup/src/ag_motion_tests.py` |
+| Cinemática inversa + PID incremental + planta del motor + zona muerta | `omni_dofbot_bringup/src/mecanum_kinematic_node.py` |
+| Odometría por cinemática directa | `omni_dofbot_bringup/src/Mecanum_odometry_node.py` |
+| Física y teletransporte | `omni_dofbot_mujoco/src/mujoco_bridge_node.py` + modelo MuJoCo |
+
+`fake_ros.py` reemplaza a rclpy y a los mensajes por una versión mínima en proceso
+(tópicos y servicios síncronos). `lockstep.py` avanza la física 1 ms por cada
+milisegundo que el AG espera, con el reloj de simulación como reloj de todos los
+nodos.
+
+Qué cambia frente a correrlo con ROS real:
+
+- **Paso fijo y determinista.** El hilo del brazo del AG corre de forma
+  cooperativa entre pasos de física. Con `--seed` la corrida completa es
+  reproducible.
+- **Más rápido que tiempo real.** Va a unas 5×. La batería P1–P4 son unos 25 s
+  simulados y tarda unos 5 s.
+- **Sin control de RTF.** La física no depende del reloj de pared, así que
+  `_gated()` siempre recibe RTF = 1.0 y nunca descarta evaluaciones. En el JSON,
+  `rtf_mean` vale 1.0.
+- **Sin latencia de mensajes.** Los tópicos se entregan en el acto. En ROS real
+  hay unos pocos ms de retraso.
+
+### Uso
+
+```bash
+cd src/omni_dofbot_mujoco/scripts
+```
+
+Una batería P1–P4 con unas ganancias (una evaluación del AG):
+
+```bash
+python3 run_ag_mujoco.py --battery 0.8 0.06 0.5
+```
+
+AG de humo (población 8, 3 generaciones, 1 ronda):
+
+```bash
+python3 run_ag_mujoco.py --smoke --seed 1 --out resultados_humo
+```
+
+AG completo, con la configuración de `ag_motion_tests.py` (35 individuos, 30 generaciones, hasta 10 rondas):
+
+```bash
+python3 run_ag_mujoco.py --seed 1 --out resultados_ag
+```
+
+Otras opciones: `--pop`, `--gen` y `--max-rounds` sobrescriben las constantes
+del AG. `--viewer --realtime` lo muestra en el visor a velocidad real (necesita
+pantalla). `--verbose` muestra también los mensajes de los nodos. Las salidas
+son las mismas que en Gazebo (`ag_results.json`, `.png`, `.html`), más
+`ag_log.txt`.
+
+Pruebas automáticas (batería del fabricante sin penalización, determinismo,
+teletransporte):
+
+```bash
+python3 -m pytest src/omni_dofbot_mujoco/test/test_ag_lockstep.py -v
+```
+
+### Resultados (18 nov, parámetros de partida del modelo)
+
+| Corrida | Resultado |
+|---|---|
+| Batería con la semilla del AG `[1, 0, 0]` | fitness 221.1. P1, P2, P3 y P4 se penalizan por timeout: con Ki = 0 no alcanzan la velocidad. |
+| Batería con las ganancias del fabricante `[0.8, 0.06, 0.5]` | fitness 10.29 (P1 17.36, P2 0.69, P3 4.94, P4 17.31). Las cuatro llegan a la meta. |
+| AG de humo, `--seed 1` | Mejor `[1.275, 0.495, 0.899]`, fitness 8.39. 616 s simulados en 2 min 8 s. |
+
+Una estimación propia del AG completo: cada ronda son unas 785 evaluaciones,
+alrededor de 1 h por ronda en esta máquina, contra unas 5 h en Gazebo a tiempo
+real.
+
+### Observaciones sobre la lógica del AG (aplican también en Gazebo)
+
+No las cambié porque la lógica debía quedar igual, pero conviene revisarlas:
+
+1. **La detección de volcadura nunca se activa.** `_odom_cb` lee roll y pitch de
+   `/odom`, pero `Mecanum_odometry_node.py` solo publica yaw, así que roll y
+   pitch siempre valen 0. Para detectarla de verdad el AG tendría que leer
+   `/ground_truth/odom` (MuJoCo) o la pose de Gazebo.
+2. **El robot se mueve después del teletransporte.** El AG reinicia el PID y el
+   filtro del motor 0.8 s después de teletransportar. Mientras tanto el filtro
+   (τ = 0.58 s) sigue moviendo las ruedas con la velocidad del segmento
+   anterior, y el robot rueda unos 5 cm. No afecta al costo porque el origen se
+   fija después, pero cada prueba no arranca en (0, 0). Llamar a
+   `_reset_controller()` antes del teletransporte lo evitaría.
+3. **`/odom` no ve el deslizamiento.** En P4 la curva de vy es idéntica a la de
+   vx en P1, porque la odometría integra las ruedas. El deslizamiento lateral
+   real de los rodillos se mide con `/ground_truth/odom`.
+
+### Con ROS 2 real (sin probar)
+
+El mismo AG también puede correr contra el puente en tiempo real, como con Gazebo:
 
 ```bash
 ros2 launch omni_dofbot_mujoco mujoco_ag.launch.py
@@ -337,9 +451,7 @@ ros2 launch omni_dofbot_mujoco mujoco_ag.launch.py
 ros2 run omni_dofbot_bringup ag_motion_tests.py
 ```
 
-El launch ya incluye el nodo cinemático y la odometría. El AG de humo debe
-terminar sin timeouts de teletransporte ni volcaduras antes de lanzar el
-completo (estimado en la guía: 2 a 4 horas en tiempo real).
+El launch ya incluye el nodo cinemático y la odometría.
 
 ## Calibración con el robot real (guía §9)
 
@@ -361,10 +473,11 @@ valores candidatos hasta igualar la velocidad en régimen medida.
 
 ## Pendientes y limitaciones
 
-- Probar el puente con ROS 2 Jazzy y correr T6, T10 y el AG de humo.
+- Probar el puente con ROS 2 Jazzy real y correr T6 y T10 (el AG ya corre sin ROS).
+- Correr el AG completo en MuJoCo y comparar las ganancias con las de Gazebo.
 - Sustituir la masa concentrada del chasis por inercias reales.
 - Confirmar el par máximo del motor (`wheel_max_torque`) y `wheel_kv` con T6.
-- Subir al repositorio el mundo de Gazebo de 2.42 × 2.42 m y las versiones vigentes de `ag_motion_tests.py` (con P4) y `mecanum_kinematic_node.py`; las copias de `src/omni_dofbot_bringup/` son anteriores.
+- `omni_dofbot_controller.launch.py` del repositorio no tiene el argumento `world:=` que menciona el README del AG; si su versión local lo tiene, falta subirla.
 - El piso es un plano infinito, no una caja; dentro de las paredes es equivalente.
 - La dirección con μ2 = 0.4 de Gazebo no tiene equivalente; se calibra con datos reales.
 - Coordinar con Marino cómo usa el AG `/ground_truth/odom`.

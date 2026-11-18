@@ -9,31 +9,22 @@ Sin Nav2. Sin AMCL. Sin mapa.
 El robot recibe /cmd_vel directo y el fitness se mide con /odom publicado
 por mecanum_odometry_node.py (cinemática directa desde /joint_states).
 
-NOTA DE DISEÑO (limitación física conocida):
-  Las mallas de las ruedas mecanum no modelan los rodillos individuales
-  reales, por lo que el giro de cada rueda es correcto y la odometría
-  interpreta bien el movimiento lateral esperado, pero Gazebo no traslada
-  realmente al robot en el eje Y del cuerpo (no hay deslizamiento lateral
-  físico). Mientras se corrige la física de las ruedas, las pruebas de
-  movimiento se restringen a los dos modos que sí se validaron como
-  correctos en simulación: traslación recta (eje X del cuerpo) y rotación
-  pura (eje Z). La prueba lateral (Y) queda retirada de esta batería.
-
-Pruebas vigentes:
+Pruebas vigentes (fitness = W1·P1 + W2·P2 + W3·P3 + W4·P4):
   P1 — Línea recta: avanza y retrocede en X.
   P2 — Rotación pura: gira +90° y -90° sobre el mismo punto (ida y vuelta).
   P3 — Combinada: avanza en X, gira -90°, avanza en X (nueva orientación).
+  P4 — Lateral: se desplaza a la izquierda y regresa a la derecha en Y.
 
 Tras cada teleport, se llama al servicio ~/reset_pose de mecanum_odometry_node
 para que la odometría acumulada vuelva a (0, 0, π/2), coherente con Gazebo.
 
 EJECUCIÓN
   # T1 — simulación
-  ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
+  ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py world:=arena_pid_tuning.world
   # T2 — cinemática PID
   ros2 run omni_dofbot_bringup mecanum_kinematic_node.py
   # T3 — odometría (lanzar antes del AG)
-  ros2 run omni_dofbot_bringup mecanum_odometry_node.py
+  ros2 run omni_dofbot_bringup Mecanum_odometry_node.py
   # T4 — este nodo
   ros2 run omni_dofbot_bringup ag_motion_tests.py
 
@@ -94,6 +85,25 @@ CHANGELOG respecto a la versión anterior (documentado para la tesis)
    podía recibir error de posición pequeño (al no moverse) y ser
    calificado como buen desempeño por error. Se aplica el mismo
    PENALTY_TO ya usado para timeouts.
+
+7. DESCARTE POR RTF CON LÍMITE DE INTENTOS:
+   _gated() Durante la evolución, tras RTF_MAX_RETRIES (=3)
+   intentos fallidos con las mismas ganancias se lanza RTFExhausted: el
+   individuo se DESCARTA y su lugar lo ocupa un nuevo controlador aleatorio.
+   El contador de individuo (_current_idx) NO avanza con un descarte, solo
+   con evaluaciones válidas. record_best() y los sintonizadores ZN siguen
+   reintentando sin límite (max_attempts=None), porque ahí no se puede
+   sustituir el controlador.
+
+8. REINICIO ITERATIVO CON SEMILLA:
+   Ronda 1: la población inicial incluye la semilla [Kp=1, Ki=0, Kd=0]
+   (valores por defecto del nodo) y se corren las N_GEN generaciones
+   completas. Al terminar, la mejor solución global pasa a ser la semilla
+   de la ronda siguiente. En las rondas >= 2, tras la primera generación se
+   compara el mejor fitness contra el de la semilla: si no mejoró al menos
+   MIN_IMPROVEMENT_GEN1 (10 %), la prueba termina y se conserva el mejor
+   controlador global; si mejoró, la ronda se completa y se repite el ciclo.
+   MAX_ROUNDS es solo un tope de seguridad.
 """
 
 import math, time, threading, subprocess, random, json, os, webbrowser
@@ -105,6 +115,8 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.parameter import Parameter as RclpyParameter
+from rclpy.time import Time
 
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter, ParameterValue, ParameterType
@@ -131,15 +143,18 @@ ROBOT_NAME   = "omni_dofbot"
 # arena). DIST_X en las primitivas corresponde al avance frontal del robot,
 # que en el marco del mundo se mueve en la dirección Y.
 DIST_X      = 0.80   # m — recta P1 / P3  (aprovecha el largo de 1.10 m)
+DIST_Y      = 0.80   # m — recta P4
 DIST_RETURN = 0.30   # m — avance corto de regreso en P3 tras el giro
 ROT_ANGLE   = math.pi / 2   # rad — ángulo de giro usado en P2 y P3 (90°)
 
 # ── Velocidades de referencia cmd_vel ─────────────────────────────────────────
 VX_REF = 0.40   # m/s
-VY_REF = 0.00   # m/s  (no usado por las pruebas vigentes, se conserva por compatibilidad)
+VY_REF = 0.40   # m/s  (no usado por las pruebas vigentes, se conserva por compatibilidad)
 WZ_REF = 1.00   # rad/s
 
 # ── Lazo de control ───────────────────────────────────────────────────────────
+RTF_MIN = 0.90
+RTF_MAX_RETRIES = 3   # Intentos por controlador antes de descartarlo
 CTRL_DT      = 0.05   # s  (20 Hz)
 SETTLE_TIME  = 0.30   # s  pausa entre segmentos
 TIMEOUT_MOVE = 8     # s  timeout traslación
@@ -155,7 +170,7 @@ TIP_SETTLE_WAIT = 0.30                # s — margen tras teleport antes de veri
 
 # ── AG ──────────────────────────────────────────────────────────────────────
 POP_SIZE    = 35
-N_GEN       = 15
+N_GEN       = 30
 CX_PROB     = 0.55
 MUT_PROB    = 0.25
 # Kp del fabricante=0.8, Ki=0.06, Kd=0.5 — mismo dominio que este PID
@@ -172,11 +187,18 @@ KD_RANGE    = (0.0, 2.0)    # ~4× el valor del fabricante
 # demasiado brusca.
 
 MUT_SIGMA   = [0.40, 0.08, 0.16]   # [Kp, Ki, Kd]
-
-W1, W2, W3  = 0.35, 0.30, 0.35   # pesos P1 (recta), P2 (giro), P3 (combinada)
-PENALTY_TO  = 50.0
-
 GAIN_DECIMALS = 3   # resolución máxima "perceptible" de Kp/Ki/Kd
+
+# ── Reinicio iterativo con semilla ─────────────────────────────
+SEED_INICIAL             = [1.0, 0.0, 0.0]   # [Kp, Ki, Kd] semilla de la ronda 1
+MIN_IMPROVEMENT_GEN1     = 0.10              # mejora mínima (10 %) tras la 1a generación
+                                             # de las rondas >= 2 para continuar
+MAX_ROUNDS               = 10                # tope de seguridad de rondas
+MAX_CONSECUTIVE_DISCARDS = 10                # descartes seguidos en un mismo hueco antes
+                                             # de abortar (Gazebo claramente sobrecargado)
+
+W1, W2, W3, W4  = 0.25, 0.20, 0.30, 0.25     # pesos P1 (recta), P2 (giro), P3 (combinada), P4 (lateral)
+PENALTY_TO  = 50.0
 
 # ── Brazo Dofbot — coreografía determinista ───────────────────────────────────
 ARM_JOINTS = ["arm_joint_01","arm_joint_02","arm_joint_03",
@@ -193,13 +215,17 @@ ARM_PICK_LEFT  = [-1.20, -1.25, -0.7, -0.3, 1.57]
 ARM_PICK_RIGHT = [ 1.20, -1.25, -0.7, -0.3, 1.57]
 
 ARM_CHOREOGRAPHY = [(1,4), (3,2), (5,1)]
-GRIP_OPEN   = 0.0  
+GRIP_OPEN   = 0.0  #Cambio para fijar al diametro de la carga
 GRIP_CLOSED = -0.75
 
 # ── Salidas ───────────────────────────────────────────────────────────────────
 OUT_PNG  = "ag_results.png"
 OUT_HTML = "ag_results.html"
 OUT_JSON = "ag_results.json"
+
+class RTFExhausted(Exception):
+    """Se agotaron los intentos con RTF >= RTF_MIN para un mismo controlador."""
+    pass
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Estructuras de datos para logging
@@ -227,17 +253,23 @@ class SegmentLog:
 class IndividualLog:
     gen: int; idx: int
     kp: float; ki: float; kd: float
-    cost_p1: float = 0.0; cost_p2: float = 0.0; cost_p3: float = 0.0
+    cost_p1: float = 0.0; cost_p2: float = 0.0; cost_p3: float = 0.0; cost_p4: float = 0.0
     fitness: float = 0.0
     segments_p1: List[SegmentLog] = field(default_factory=list)
     segments_p2: List[SegmentLog] = field(default_factory=list)
     segments_p3: List[SegmentLog] = field(default_factory=list)
+    segments_p4: List[SegmentLog] = field(default_factory=list)
+    rtf_mean: float = float('nan')
+    rtf_min: float = float('nan')
+    retries: int = 0
+    round: int = 1
 
 @dataclass
 class GenLog:
     gen: int
     min_fit: float; mean_fit: float; max_fit: float
     best_kp: float; best_ki: float; best_kd: float
+    round: int = 1
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DEAP
@@ -255,12 +287,52 @@ class Pose2D:
     def dist(self, o): return math.hypot(self.x-o.x, self.y-o.y)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Muestreo de reloj de simulacion, sin suscripcion extra a /clock
+# ══════════════════════════════════════════════════════════════════════════════
+class RtfMonitor:
+    """RTF = Δt_sim / Δt_pared.
+    mean: sobre TODA la evaluación (robusto al retraso del executor).
+    min : mínimo en ventanas largas de pared (no mide jitter puntual)."""
+    def __init__(self, node, window=3.0):
+        self._node, self._window = node, window
+        self._lock = threading.Lock()
+        self._active = False
+        self._s_begin = self._w_begin = 0.0
+        self._wins = []
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        s0, w0 = self._node._now(), time.monotonic()
+        while True:
+            time.sleep(self._window)
+            s1, w1 = self._node._now(), time.monotonic()
+            with self._lock:
+                if self._active:
+                    self._wins.append((s1 - s0) / (w1 - w0))
+            s0, w0 = s1, w1
+
+    def begin(self):
+        with self._lock:
+            self._s_begin, self._w_begin = self._node._now(), time.monotonic()
+            self._wins, self._active = [], True
+
+    def end(self):
+        s_end, w_end = self._node._now(), time.monotonic()
+        with self._lock:
+            self._active = False
+            wins = list(self._wins)
+            dw = w_end - self._w_begin
+            mean = (s_end - self._s_begin) / dw if dw > 0 else 0.0
+        return mean, (min(wins) if wins else mean)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Nodo principal
 # ══════════════════════════════════════════════════════════════════════════════
 class AGMotionEvaluator(Node):
 
     def __init__(self):
-        super().__init__("ag_motion_evaluator")
+        super().__init__("ag_motion_evaluator",
+        parameter_overrides=[RclpyParameter('use_sim_time', RclpyParameter.Type.BOOL, True)])
         cbg = ReentrantCallbackGroup()
 
         # ── Publishers ────────────────────────────────────────────────────────
@@ -327,13 +399,32 @@ class AGMotionEvaluator(Node):
         self._current_idx = 0
         self._arm_active  = False
 
+        # CHANGELOG #7/#8 — estado de rondas y descartes por RTF
+        self._current_round = 1
+        self._gen_offset    = 0      # generaciones acumuladas de rondas previas
+        self._discarded     = []     # controladores descartados por RTF
+        self._round_logs    = []     # resumen de cada ronda
+
         # CHANGELOG #6 — timestamp de arranque, usado para reportar tiempo
         # transcurrido junto con el progreso de generación/individuo en cada
         # evaluación (ver evaluate()), así se puede seguir el avance real de
         # una corrida larga sin adivinar en qué punto va.
         self._eval_start_time = time.time()
 
+        self._rtf = RtfMonitor(self)
+
         self.get_logger().info("AGMotionEvaluator listo.")
+
+    def _now(self) -> float:
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _sleep(self, sec: float):
+        """Espera `sec` s de SIMULACIÓN, con watchdog de pared por si Gazebo se pausa."""
+        t_end, w_end = self._now() + sec, time.monotonic() + max(5.0, sec * 20)
+        while self._now() < t_end:
+            if time.monotonic() > w_end:
+                self.get_logger().warn("Gazebo pausado o muy lento"); break
+            time.sleep(0.001)
 
     # ── Odometría ─────────────────────────────────────────────────────────────
     def _odom_cb(self, msg: Odometry):
@@ -364,12 +455,14 @@ class AGMotionEvaluator(Node):
         wz  = msg.twist.twist.angular.z
 
         with self._lock:
+            self._tipped   = (abs(roll) > ROLL_PITCH_TOL or
+                              abs(pitch) > ROLL_PITCH_TOL)
             self._pose     = Pose2D(msg.pose.pose.position.x,
                                     msg.pose.pose.position.y, yaw)
             self._vel_real = (vx, vy, wz)
 
             if self._measuring:
-                now = time.time()
+                now = Time.from_msg(msg.header.stamp).nanoseconds * 1e-9
                 dt = now - self._last_odom_t
                 if dt <= 0.0: dt = 0.001
                 self._last_odom_t = now
@@ -448,8 +541,8 @@ class AGMotionEvaluator(Node):
             self._itae_accum   = 0.0
 
             # Iniciar relojes
-            self._start_eval_t = time.time()
-            self._last_odom_t  = time.time()
+            self._start_eval_t = self._now()
+            self._last_odom_t  = self._now()
 
             self._measuring    = True
             self._seg_log      = seg_log
@@ -510,9 +603,9 @@ class AGMotionEvaluator(Node):
     def _wait_arm(self, duration_sec: float) -> bool:
         """Espera duration_sec mientras self._arm_active siga activo.
         Devuelve False si el hilo debe detenerse anticipadamente."""
-        t0 = time.time()
-        while self._arm_active and time.time() - t0 < duration_sec:
-            time.sleep(0.05)
+        t0 = self._now()
+        while self._arm_active and self._now() - t0 < duration_sec:
+            self._sleep(0.05)
         return self._arm_active
 
     def _arm_loop(self):
@@ -579,7 +672,7 @@ class AGMotionEvaluator(Node):
     # ── Teleport ──────────────────────────────────────────────────────────────
     def _teleport(self):
         self._stop()
-        time.sleep(0.15)
+        self._sleep(0.15)
         done = False
         if self._tp_cli.wait_for_service(timeout_sec=2.0):
             req = SetEntityPose.Request()
@@ -608,12 +701,12 @@ class AGMotionEvaluator(Node):
             except subprocess.CalledProcessError as e:
                 self.get_logger().error(f"Teleport gz falló: {e.stderr.decode()}")
 
-        time.sleep(0.80)
+        self._sleep(0.80)
 
         # ORDEN CORREGIDO: resetear ANTES de fijar el origen, no después.
         self._reset_odometry()
         self._reset_controller()
-        time.sleep(0.10)            # deja llegar al menos un /odom ya en cero
+        self._sleep(0.10)            # deja llegar al menos un /odom ya en cero
         self._fix_origin()
 
     # ── Primitivas de movimiento ──────────────────────────────────────────────
@@ -631,11 +724,11 @@ class AGMotionEvaluator(Node):
         slog = SegmentLog(name=seg_name)
         self._start_itae(target, slog)
 
-        t0 = time.time()
+        t0 = self._now()
         ok = False
         aborted = False
 
-        while time.time() - t0 < timeout:
+        while self._now() - t0 < timeout:
             if self._is_tipped():
                 self.get_logger().warn("Aborto temprano — robot volcado")
                 break
@@ -667,12 +760,12 @@ class AGMotionEvaluator(Node):
                 break
 
             self._send(vx=vx, vy=vy)
-            time.sleep(CTRL_DT)
+            self._sleep(CTRL_DT)
 
         self._stop()
         itae = self._stop_itae()
-        elapsed = time.time() - t0
-        time.sleep(SETTLE_TIME)
+        elapsed = self._now() - t0
+        self._sleep(SETTLE_TIME)
 
         ok_final = ok and not aborted
         return itae, elapsed, ok_final, slog
@@ -682,13 +775,13 @@ class AGMotionEvaluator(Node):
         p0       = self._get_pose()
         goal_yaw = p0.yaw + angle_rad
         sign     = math.copysign(1.0, angle_rad)
-        t0, ok   = time.time(), False
+        t0, ok   = self._now(), False
 
         target = Pose2D(p0.x, p0.y, goal_yaw)
         slog   = SegmentLog(name=seg_name) if seg_name else None
         self._start_itae(target, slog)
 
-        while time.time()-t0 < timeout:
+        while self._now()-t0 < timeout:
             if self._is_tipped():
                 self.get_logger().warn("Aborto temprano — robot volcado")
                 break
@@ -700,7 +793,7 @@ class AGMotionEvaluator(Node):
 
             wz = sign * max(0.15, min(WZ_REF, abs(diff)*1.5))
 
-            t_rel    = time.time() - t0
+            t_rel    = self._now() - t0
             est_total = max(abs(angle_rad) / WZ_REF, 1e-3)
             frac      = min(1.0, t_rel / est_total)
             with self._lock:
@@ -709,7 +802,7 @@ class AGMotionEvaluator(Node):
 
             # CHANGELOG #1 — ya NO se toca slog aquí, lo llena _odom_cb
             self._send(wz=wz)
-            time.sleep(CTRL_DT)
+            self._sleep(CTRL_DT)
 
         self._stop()
         with self._lock:
@@ -718,8 +811,8 @@ class AGMotionEvaluator(Node):
 
         p       = self._get_pose()
         diff    = (goal_yaw - p.yaw + math.pi) % (2*math.pi) - math.pi
-        elapsed = time.time() - t0
-        time.sleep(SETTLE_TIME)
+        elapsed = self._now() - t0
+        self._sleep(SETTLE_TIME)
         return abs(diff), ok, slog, elapsed
 
     # ── PID ───────────────────────────────────────────────────────────────────
@@ -745,7 +838,7 @@ class AGMotionEvaluator(Node):
         self.get_logger().info("── P1: línea recta adelante-atrás ──")
         self._teleport()
 
-        time.sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
             self.get_logger().warn("P1: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
@@ -784,15 +877,15 @@ class AGMotionEvaluator(Node):
     def _run_test2(self, record=False):
         self.get_logger().info("── P2: rotación pura +90°/-90° ──")
         self._teleport()
-        time.sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
             self.get_logger().warn("P2: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
 
         self._start_arm()
         try:
-            err1, ok1, s1, t1 = self._rotate(+ROT_ANGLE, seg_name="P2_giro_horario")
-            err2, ok2, s2, t2 = self._rotate(-ROT_ANGLE, seg_name="P2_giro_antihorario")
+            err1, ok1, s1, t1 = self._rotate(+ROT_ANGLE, seg_name="P2_giro_antihorario")
+            err2, ok2, s2, t2 = self._rotate(-ROT_ANGLE, seg_name="P2_giro_horario")
         finally:
             self._stop_arm()
 
@@ -816,7 +909,7 @@ class AGMotionEvaluator(Node):
     def _run_test3(self, record=False):
         self.get_logger().info("── P3: avance + giro + regreso de frente ──")
         self._teleport()
-        time.sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
         if self._is_tipped():
             self.get_logger().warn("P3: robot volcado tras el teleport — prueba abortada.")
             return PENALTY_TO, []
@@ -847,9 +940,68 @@ class AGMotionEvaluator(Node):
 
         segs = [s1, s_rot, s2] if record else []
         return cost, segs
+    
+    # ══════════════════════════════════════════════════════════════════════════
+    # PRUEBA 4 — Linea Recta Lateral: izquierda y derecha
+    # ══════════════════════════════════════════════════════════════════════════
+    def _run_test4(self, record=False):
+        self.get_logger().info("── P4: línea recta izquierda-derecha ──")
+        self._teleport()
+
+        self._sleep(TIP_SETTLE_WAIT)   # espera a que el robot se estabilice tras el teleport    
+        if self._is_tipped():
+            self.get_logger().warn("P4: robot volcado tras el teleport — prueba abortada.")
+            return PENALTY_TO, []
+
+        self._start_arm()
+        try:
+            i1, t1, ok1, s1 = self._drive( DIST_Y, "y", vy=+VY_REF, seg_name="P4_izquierda")
+            i2, t2, ok2, s2 = self._drive(-DIST_Y, "y", vy=-VY_REF, seg_name="P4_derecha")
+        finally:
+            self._stop_arm()
+
+        rel   = self._pose_rel()
+        err_f = math.hypot(rel.x, rel.y)
+
+        ITAE_REF = 0.05
+        TIME_REF = 2 * DIST_Y / VY_REF
+        cost = (0.60*(i1+i2)/ITAE_REF + 0.30*(t1+t2)/TIME_REF
+              + 0.10*err_f/POS_TOL)
+        if not ok1 or not ok2: cost += PENALTY_TO
+
+        self.get_logger().info(
+            f"   ITAE={i1+i2:.4f} t={t1+t2:.1f}s err_f={err_f:.3f}m cost={cost:.4f}")
+        return cost, ([s1, s2] if record else [])
+
+    # ── Reintentos si la metrica es invalida ──────────────────────────────────
+    def _gated(self, run_fn, max_attempts=None):
+        """Ejecuta run_fn y la repite mientras el RTF medio sea < RTF_MIN.
+        max_attempts=None  -> reintenta indefinidamente (record_best, ZN).
+        max_attempts=N     -> tras N intentos fallidos con las MISMAS ganancias
+                              lanza RTFExhausted (CHANGELOG #7); quien llama
+                              decide qué controlador evaluar en su lugar.
+        """
+        attempt = 0
+        while True:
+            attempt += 1
+            self._rtf.begin()
+            result = run_fn()
+            mean, mn = self._rtf.end()
+            if mean >= RTF_MIN:
+                return result, mean, mn, attempt - 1
+
+            self.get_logger().warn(
+                f"[RTF] {mean:.2f} (min {mn:.2f}) < {RTF_MIN}: "
+                f"evaluación descartada, intento {attempt}"
+                f"/{max_attempts if max_attempts is not None else '∞'}")
+            if max_attempts is not None and attempt >= max_attempts:
+                raise RTFExhausted(
+                    f"RTF < {RTF_MIN} en {attempt} intentos consecutivos "
+                    f"(último RTF={mean:.2f})")
+            time.sleep(2.0)
 
     # ── Evaluación ────────────────────────────────────────────────────────────
-    def evaluate(self, individual) -> tuple:
+    def evaluate(self, individual, max_attempts=None) -> tuple:
         kp, ki, kd = individual
 
         # --- IMPLEMENTACIÓN DEL CHANGELOG 6 ---
@@ -859,45 +1011,57 @@ class AGMotionEvaluator(Node):
         
         self.get_logger().info(
             f"=== [Progreso AG] Tiempo: {h:02d}:{m:02d}:{s:02d} | "
+            f"Ronda: {self._current_round} | "
             f"Gen: {self._current_gen}/{N_GEN} | "
             f"Ind: {self._current_idx + 1}/{POP_SIZE} ==="
         )
         # --------------------------------------
 
         self.get_logger().info(f"[AG] Kp={kp:.3f} Ki={ki:.3f} Kd={kd:.3f}")
-        self._set_pid(kp, ki, kd)
 
-        c1, _ = self._run_test1()
-        c2, _ = self._run_test2()
-        c3, _ = self._run_test3()
-        fitness = W1*c1 + W2*c2 + W3*c3
+        def _battery():
+            self._set_pid(kp, ki, kd)
+            return (self._run_test1()[0], self._run_test2()[0],
+                    self._run_test3()[0], self._run_test4()[0])
+
+        # Si _gated lanza RTFExhausted, _current_idx NO se incrementa (CHANGELOG #7).
+        (c1, c2, c3, c4), rtf_mean, rtf_min, retries = self._gated(
+            _battery, max_attempts=max_attempts)
+        fitness = W1*c1 + W2*c2 + W3*c3 + W4*c4
 
         ilog = IndividualLog(
             gen=self._current_gen, idx=self._current_idx,
             kp=kp, ki=ki, kd=kd,
-            cost_p1=c1, cost_p2=c2, cost_p3=c3, fitness=fitness)
+            cost_p1=c1, cost_p2=c2, cost_p3=c3, cost_p4=c4, fitness=fitness,
+            rtf_mean=rtf_mean, rtf_min=rtf_min, retries=retries,
+            round=self._current_round)
         self._all_individuals.append(ilog)
         self._current_idx += 1
 
         self.get_logger().info(
-            f"[AG] P1={c1:.4f} P2={c2:.4f} P3={c3:.4f} fit={fitness:.5f}")
+            f"[AG] P1={c1:.4f} P2={c2:.4f} P3={c3:.4f} P4={c4:.4f} fit={fitness:.5f} "
+            f"RTF={rtf_mean:.2f} (min {rtf_min:.2f}) retries={retries}")
         return (fitness,)
 
     def record_best(self, best_ind):
         kp, ki, kd = best_ind
         self.get_logger().info(
             f"[AG] Grabando mejor: Kp={kp:.3f} Ki={ki:.3f} Kd={kd:.3f}")
-        self._set_pid(kp, ki, kd)
-        c1, segs1 = self._run_test1(record=True)
-        c2, segs2 = self._run_test2(record=True)
-        c3, segs3 = self._run_test3(record=True)
-        return segs1, segs2, segs3
 
+        def _battery():
+            self._set_pid(kp, ki, kd)
+            _, s1 = self._run_test1(record=True)
+            _, s2 = self._run_test2(record=True)
+            _, s3 = self._run_test3(record=True)
+            _, s4 = self._run_test4(record=True)
+            return s1, s2, s3, s4
+        (segs1, segs2, segs3, segs4), *_ = self._gated(_battery)   # sin límite de intentos
+        return segs1, segs2, segs3, segs4
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Gráficas (matplotlib + plotly)
 # ══════════════════════════════════════════════════════════════════════════════
-def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
+def _build_plots(gen_logs, all_inds, segs1, segs2, segs3, segs4,
                  best_kp, best_ki, best_kd):
 
     gens     = [g.gen      for g in gen_logs]
@@ -929,7 +1093,7 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
         ax1.plot(gens, mean_fit, "b-s", ms=5, lw=1.8, label="media")
         ax1.plot(gens, max_fit,  "r-^", ms=5, lw=1.8, label="max")
         ax1.fill_between(gens, min_fit, max_fit, alpha=0.12, color="blue")
-        ax1.set_title("Evolución del fitness"); ax1.set_xlabel("Generación")
+        ax1.set_title("Evolución del fitness"); ax1.set_xlabel("Generación (acumulada entre rondas)")
         ax1.set_ylabel("Fitness"); ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
 
         ax2 = fig.add_subplot(gs[0, 1])
@@ -970,7 +1134,18 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
         ax5.set_title("P3 — error de posición"); ax5.set_xlabel("t (s)")
         ax5.set_ylabel("|err| (m)"); ax5.legend(fontsize=7); ax5.grid(True, alpha=0.3)
 
-        ax6  = fig.add_subplot(gs[2, 1])
+        ax10 = fig.add_subplot(gs[2, 1])
+        ax10_has_data = False
+        for seg in segs4 or []:
+            if seg.t and len(seg.t) == len(seg.vy_real):
+                ax10.plot(seg.t, seg.vy_ref,  "--", lw=1.5, label=f"{seg.name} ref", alpha=0.8)
+                ax10.plot(seg.t, seg.vy_real, "-",  lw=1.5, label=f"{seg.name} real")
+                ax10_has_data = True
+        ax10.set_title("P4 — vy (lateral)"); ax10.set_xlabel("t (s)"); ax10.set_ylabel("vy (m/s)")
+        if ax10_has_data: ax10.legend(fontsize=7)
+        ax10.grid(True, alpha=0.3)
+
+        ax6  = fig.add_subplot(gs[3, 0])
         scat = ax6.scatter(all_kp, all_ki, c=all_fit, cmap="viridis_r",
                            s=35, alpha=0.75, edgecolors="none")
         plt.colorbar(scat, ax=ax6, label="Fitness")
@@ -979,15 +1154,16 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
         ax6.set_title("Distribución Kp–Ki"); ax6.set_xlabel("Kp")
         ax6.set_ylabel("Ki"); ax6.legend(fontsize=8); ax6.grid(True, alpha=0.3)
 
+
         # ── Pose deseada vs obtenida: x(t), y(t), yaw(t) ────────────────────────
-        # Se concatenan las pruebas P1+P2+P3 para tener una sola línea de
+        # Se concatenan las pruebas P1+P2+P3+P4 para tener una sola línea de
         # tiempo continua del mejor individuo (cada prueba parte de t=0,
         # así que se suma un offset acumulado para que no se sobrepongan).
-        all_segs = (segs1 or []) + (segs2 or []) + (segs3 or [])
+        all_segs = (segs1 or []) + (segs2 or []) + (segs3 or []) + (segs4 or [])
 
-        ax7 = fig.add_subplot(gs[3, 0])
-        ax8 = fig.add_subplot(gs[3, 1])
-        ax9 = fig.add_subplot(gs[4, 0])
+        ax7 = fig.add_subplot(gs[3, 1])
+        ax8 = fig.add_subplot(gs[4, 0])
+        ax9 = fig.add_subplot(gs[4, 1])
 
         t_offset  = 0.0
         pose_drawn = False   # flag: indica si se pintó al menos un segmento
@@ -1015,9 +1191,9 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
             pose_drawn = True
 
         for ax, title, ylabel in [
-            (ax7, "Pose X — deseada vs obtenida (P1→P2→P3)", "x (m)"),
-            (ax8, "Pose Y — deseada vs obtenida (P1→P2→P3)", "y (m)"),
-            (ax9, "Pose Yaw — deseada vs obtenida (P1→P2→P3)", "yaw (°)"),
+            (ax7, "Pose X — deseada vs obtenida (P1→P2→P3→P4)", "x (m)"),
+            (ax8, "Pose Y — deseada vs obtenida (P1→P2→P3→P4)", "y (m)"),
+            (ax9, "Pose Yaw — deseada vs obtenida (P1→P2→P3→P4)", "yaw (°)"),
         ]:
             ax.set_title(title); ax.set_xlabel("t (s, concatenado)"); ax.set_ylabel(ylabel)
             ax.grid(True, alpha=0.3)
@@ -1042,7 +1218,7 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
                 "P1 — vel X (ref vs real)", "P2 — vel angular (ref vs real)",
                 "P3 — error de posición",  "Distribución Kp–Ki",
                 "Pose X — deseada vs obtenida", "Pose Y — deseada vs obtenida",
-                "Pose Yaw — deseada vs obtenida", "",
+                "Pose Yaw — deseada vs obtenida", "P4 — vel Y (ref vs real)",
             ],
             vertical_spacing=0.07, horizontal_spacing=0.10,
         )
@@ -1085,12 +1261,20 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
         fig.add_hline(y=POS_TOL, line_dash="dot", line_color="red",
                       annotation_text=f"tol {POS_TOL}m", row=3, col=1)
 
+        for ci, seg in enumerate(segs4 or []):
+            if not seg.t or len(seg.t) != len(seg.vy_real): continue
+            c = COLORS[ci % len(COLORS)]
+            fig.add_trace(go.Scatter(x=seg.t, y=seg.vy_ref,  name=f"{seg.name} ref",
+                          line=dict(dash="dash", color=c)), row=5, col=2)
+            fig.add_trace(go.Scatter(x=seg.t, y=seg.vy_real, name=f"{seg.name} real",
+                          line=dict(color=c)), row=5, col=2)
+
         fig.add_trace(
             go.Scatter(x=all_kp, y=all_ki, mode="markers",
                        marker=dict(color=all_fit, colorscale="Viridis_r", size=8,
                                    showscale=True,
                                    colorbar=dict(title="Fitness", x=1.02)),
-                       text=[f"gen={i.gen} fit={i.fitness:.4f}" for i in all_inds],
+                       text=[f"ronda={i.round} gen={i.gen} fit={i.fitness:.4f}" for i in all_inds],
                        hoverinfo="text+x+y", name="individuos"),
             row=3, col=2)
         fig.add_trace(
@@ -1099,7 +1283,7 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
             row=3, col=2)
 
         # ── Pose deseada vs obtenida — series de tiempo concatenadas ──────────
-        all_segs = (segs1 or []) + (segs2 or []) + (segs3 or [])
+        all_segs = (segs1 or []) + (segs2 or []) + (segs3 or []) + (segs4 or [])
         t_offset = 0.0
         first_pose_trace = True
         for seg in all_segs:
@@ -1141,9 +1325,9 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
             if seg.t:
                 t_offset += seg.t[-1] + 0.1
 
-        fig.update_xaxes(title_text="t (s, concatenado P1→P2→P3)", row=4, col=1)
-        fig.update_xaxes(title_text="t (s, concatenado P1→P2→P3)", row=4, col=2)
-        fig.update_xaxes(title_text="t (s, concatenado P1→P2→P3)", row=5, col=1)
+        fig.update_xaxes(title_text="t (s, concatenado P1→P2→P3→P4)", row=4, col=1)
+        fig.update_xaxes(title_text="t (s, concatenado P1→P2→P3→P4)", row=5, col=1)
+        fig.update_xaxes(title_text="t (s, concatenado P1→P2→P3→P4)", row=4, col=2)
         fig.update_yaxes(title_text="x (m)",   row=4, col=1)
         fig.update_yaxes(title_text="y (m)",   row=4, col=2)
         fig.update_yaxes(title_text="yaw (°)", row=5, col=1)
@@ -1167,7 +1351,6 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3,
 # ══════════════════════════════════════════════════════════════════════════════
 # Decorador de bounds para operadores genéticos
 # ══════════════════════════════════════════════════════════════════════════════
-
 def _bounded(func):
     def wrapper(*args, **kwargs):
         off = func(*args, **kwargs)
@@ -1177,6 +1360,7 @@ def _bounded(func):
         return off
     return wrapper
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Callback de estadísticas por generación
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1184,17 +1368,137 @@ def _make_gen_callback(node: AGMotionEvaluator):
     def _cb(pop, gen, **kwargs):
         fits = [ind.fitness.values[0] for ind in pop]
         best = min(pop, key=lambda i: i.fitness.values[0])
+        # gen global = generaciones de rondas previas + gen local (CHANGELOG #8)
         glog = GenLog(
-            gen=gen,
+            gen=node._gen_offset + gen,
             min_fit=min(fits), mean_fit=sum(fits)/len(fits), max_fit=max(fits),
-            best_kp=best[0], best_ki=best[1], best_kd=best[2])
+            best_kp=best[0], best_ki=best[1], best_kd=best[2],
+            round=node._current_round)
         node._gen_logs.append(glog)
         node._current_gen = gen + 1
         node._current_idx = 0
         node.get_logger().info(
-            f"[GEN {gen}] min={glog.min_fit:.5f} mean={glog.mean_fit:.5f} "
+            f"[RONDA {node._current_round} | GEN {gen}] min={glog.min_fit:.5f} "
+            f"mean={glog.mean_fit:.5f} "
             f"best=[{best[0]:.3f},{best[1]:.3f},{best[2]:.3f}]")
     return _cb
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CHANGELOG #7 / #8 — descarte por RTF y rondas con semilla
+# ══════════════════════════════════════════════════════════════════════════════
+def _random_individual(toolbox):
+    ind = toolbox.individual()
+    for i in range(3):
+        ind[i] = round(ind[i], GAIN_DECIMALS)
+    return ind
+
+
+def _evaluate_slot(ind, toolbox, node: AGMotionEvaluator):
+    """Evalúa `ind`. Si agota los intentos por RTF, lo reemplaza IN SITU por un
+    controlador aleatorio nuevo y vuelve a evaluar. El contador de individuo
+    (_current_idx) solo avanza en evaluaciones válidas, así que el descarte no
+    consume un número de individuo."""
+    consecutive = 0
+    while True:
+        try:
+            ind.fitness.values = toolbox.evaluate(ind)
+            return
+        except RTFExhausted as e:
+            consecutive += 1
+            node._discarded.append({
+                "round": node._current_round, "gen": node._current_gen,
+                "slot": node._current_idx,
+                "kp": ind[0], "ki": ind[1], "kd": ind[2], "reason": str(e)})
+            node.get_logger().warn(
+                f"[RTF] Controlador descartado (Kp={ind[0]:.3f} Ki={ind[1]:.3f} "
+                f"Kd={ind[2]:.3f}) tras {RTF_MAX_RETRIES} intentos — "
+                f"se pasa al siguiente controlador en el mismo hueco "
+                f"(Ind {node._current_idx + 1}/{POP_SIZE}).")
+            if consecutive >= MAX_CONSECUTIVE_DISCARDS:
+                raise RuntimeError(
+                    f"{consecutive} controladores consecutivos descartados por RTF "
+                    f"< {RTF_MIN}: Gazebo está sobrecargado, abortando.")
+            ind[:] = _random_individual(toolbox)
+
+
+def _run_round(node, toolbox, gen_cb, seed, round_idx, check_gen1):
+    """Una ronda completa del AG (población inicial con `seed` incluida).
+
+    check_gen1=True: tras la 1a generación se exige una mejora >=
+    MIN_IMPROVEMENT_GEN1 respecto al fitness de la semilla; si no se cumple la
+    ronda se corta y devuelve stopped_early=True.
+
+    Devuelve (mejor_individuo_de_la_ronda, stopped_early, generaciones_corridas).
+    """
+    node._current_round = round_idx
+    node._current_gen   = 0
+    node._current_idx   = 0
+    hof = tools.HallOfFame(5)
+
+    seed_r = [round(float(v), GAIN_DECIMALS) for v in seed]
+    node.get_logger().info(
+        f"########## RONDA {round_idx} — semilla Kp={seed_r[0]:.3f} "
+        f"Ki={seed_r[1]:.3f} Kd={seed_r[2]:.3f} ##########")
+
+    pop = toolbox.population(n=POP_SIZE)
+    for ind in pop:
+        for i in range(3):
+            ind[i] = round(ind[i], GAIN_DECIMALS)
+    pop[0][:] = seed_r                       # la semilla ocupa el individuo 1
+
+    _evaluate_slot(pop[0], toolbox, node)    # se evalúa primero
+    seed_fit = (pop[0].fitness.values[0]
+                if [round(v, GAIN_DECIMALS) for v in pop[0]] == seed_r else None)
+    for ind in pop[1:]:
+        _evaluate_slot(ind, toolbox, node)
+    hof.update(pop)
+
+    if seed_fit is None:   # la semilla fue descartada por RTF: referencia alternativa
+        seed_fit = min(ind.fitness.values[0] for ind in pop)
+        node.get_logger().warn(
+            "La semilla fue descartada por RTF; la referencia del 10 % será "
+            "el mejor fitness de la población inicial.")
+    node.get_logger().info(f"[RONDA {round_idx}] fitness de referencia (semilla) = {seed_fit:.5f}")
+
+    stopped_early, improvement, gens_run = False, None, 0
+    for gen in range(N_GEN):
+        node._current_gen = gen + 1
+        node._current_idx = 0
+
+        offspring = algorithms.varAnd(pop, toolbox, CX_PROB, MUT_PROB)
+        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+        for ind in invalid_ind:
+            _evaluate_slot(ind, toolbox, node)
+
+        # CHANGELOG #3 — elitismo
+        n_elite = len(hof)
+        elites  = [toolbox.clone(ind) for ind in hof]
+        pop[:]  = toolbox.select(offspring, len(pop) - n_elite) + elites
+
+        hof.update(pop)
+        gen_cb(pop, gen)
+        gens_run += 1
+
+        if check_gen1 and gen == 0:
+            best_fit = hof[0].fitness.values[0]
+            improvement = (seed_fit - best_fit) / seed_fit if seed_fit > 0 else 0.0
+            node.get_logger().info(
+                f"[RONDA {round_idx}] mejora tras la 1a generación: "
+                f"{improvement*100:.2f} % (mínimo exigido "
+                f"{MIN_IMPROVEMENT_GEN1*100:.0f} %)")
+            if improvement < MIN_IMPROVEMENT_GEN1:
+                stopped_early = True
+                break
+
+    best = toolbox.clone(hof[0])
+    node._round_logs.append({
+        "round": round_idx, "seed": seed_r, "seed_fitness": seed_fit,
+        "best": {"kp": best[0], "ki": best[1], "kd": best[2],
+                 "fitness": best.fitness.values[0]},
+        "improvement_gen1": improvement, "stopped_early": stopped_early,
+        "generations_run": gens_run})
+    return best, stopped_early, gens_run
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1209,6 +1513,10 @@ def main(args=None):
     ros_thread = threading.Thread(target=executor.spin, daemon=True)
     ros_thread.start()
 
+    while node._now() == 0.0:
+        time.sleep(0.05)
+    node.get_logger().info("Reloj de simulación activo.")
+
     try:
         toolbox = base.Toolbox()
         toolbox.register("kp", random.uniform, *KP_RANGE)
@@ -1217,7 +1525,8 @@ def main(args=None):
         toolbox.register("individual", tools.initCycle, creator.Individual,
                          (toolbox.kp, toolbox.ki, toolbox.kd), n=1)
         toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-        toolbox.register("evaluate", node.evaluate)
+        # CHANGELOG #7 — durante la evolución, límite de intentos por RTF
+        toolbox.register("evaluate", node.evaluate, max_attempts=RTF_MAX_RETRIES)
         toolbox.register("mate",     tools.cxBlend, alpha=0.5)
         # CHANGELOG #5 — sigma por parámetro en vez de un valor fijo único,
         # escalado aproximadamente al 7-8% del rango de cada gen (antes,
@@ -1228,56 +1537,41 @@ def main(args=None):
         toolbox.decorate("mate",   _bounded)
         toolbox.decorate("mutate", _bounded)
 
-        stats = tools.Statistics(lambda ind: ind.fitness.values[0])
-        stats.register("min",  min)
-        stats.register("mean", lambda x: sum(x)/len(x))
-        stats.register("max",  max)
-        hof = tools.HallOfFame(5)
-
         gen_cb = _make_gen_callback(node)
-        node.get_logger().info(f"Iniciando AG — pop={POP_SIZE}  gen={N_GEN}")
+        node.get_logger().info(
+            f"Iniciando AG — pop={POP_SIZE}  gen={N_GEN}  "
+            f"semilla inicial={SEED_INICIAL}  RTF_MAX_RETRIES={RTF_MAX_RETRIES}")
 
-        # Evaluación inicial
-        node._current_gen = 0
-        node._current_idx = 0
-        pop = toolbox.population(n=POP_SIZE)
-        for ind in pop:
-            for i in range(3):
-                ind[i] = round(ind[i], GAIN_DECIMALS)
-            ind.fitness.values = toolbox.evaluate(ind)
-        hof.update(pop)
+        # ── CHANGELOG #8 — rondas con semilla ────────────────────────────────
+        seed = list(SEED_INICIAL)
+        global_best = None
+        for rnd in range(1, MAX_ROUNDS + 1):
+            best_r, stopped, gens_run = _run_round(
+                node, toolbox, gen_cb, seed, rnd, check_gen1=(rnd > 1))
+            node._gen_offset += gens_run
 
-        # Bucle evolutivo
-        for gen in range(N_GEN):
-            # --- FIX: Sincronizar contadores para la consola ---
-            node._current_gen = gen + 1
-            node._current_idx = 0 
-            # ---------------------------------------------------
+            if (global_best is None or
+                    best_r.fitness.values[0] < global_best.fitness.values[0]):
+                global_best = best_r
 
-            offspring = algorithms.varAnd(pop, toolbox, CX_PROB, MUT_PROB)
-            
-            # Extraemos SOLO los que perdieron su fitness (por cruza o mutación)
-            invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            for ind in invalid_ind:
-                ind.fitness.values = toolbox.evaluate(ind)
+            node.get_logger().info(
+                f"[RONDA {rnd}] terminada — mejor de la ronda "
+                f"{best_r.fitness.values[0]:.5f} | mejor global "
+                f"{global_best.fitness.values[0]:.5f} "
+                f"[{global_best[0]:.3f},{global_best[1]:.3f},{global_best[2]:.3f}]")
 
-            # CHANGELOG #3 — ELITISMO: se reservan len(hof) espacios en la
-            # nueva población para los mejores individuos históricos, en vez
-            # de seleccionar únicamente sobre `offspring`. Un análisis de una
-            # corrida de 50x100 sin este fix mostró DOS regresiones del
-            # mínimo histórico (el mejor individuo se perdía de la
-            # población al no ganar el torneo) y 28 de 50 generaciones sin
-            # ninguna mejora. clone() evita que los individuos del HOF y los
-            # de `pop` compartan el mismo objeto (lo que rompería mate/mutate
-            # en la siguiente generación por aliasing).
-            n_elite = len(hof)
-            elites  = [toolbox.clone(ind) for ind in hof]
-            pop[:]  = toolbox.select(offspring, len(pop) - n_elite) + elites
+            if stopped:
+                node.get_logger().info(
+                    "La 1a generación no mejoró lo suficiente: se conserva el "
+                    "mejor controlador global y termina la prueba.")
+                break
+            seed = [global_best[0], global_best[1], global_best[2]]
+        else:
+            node.get_logger().warn(
+                f"Se alcanzó MAX_ROUNDS={MAX_ROUNDS} sin corte por mejora < "
+                f"{MIN_IMPROVEMENT_GEN1*100:.0f} %.")
 
-            hof.update(pop)
-            gen_cb(pop, gen)
-
-        best = hof[0]
+        best = global_best
         best_kp, best_ki, best_kd = best[0], best[1], best[2]
         node.get_logger().info("=" * 54)
         node.get_logger().info("MEJOR INDIVIDUO:")
@@ -1285,10 +1579,11 @@ def main(args=None):
         node.get_logger().info(f"  Ki = {best_ki:.6f}")
         node.get_logger().info(f"  Kd = {best_kd:.6f}")
         node.get_logger().info(f"  Fitness = {best.fitness.values[0]:.6f}")
+        node.get_logger().info(f"  Controladores descartados por RTF: {len(node._discarded)}")
         node.get_logger().info("=" * 54)
 
         node.get_logger().info("Grabando corrida final del mejor individuo...")
-        segs1, segs2, segs3 = node.record_best(best)
+        segs1, segs2, segs3, segs4 = node.record_best(best)
 
         def _seg_to_dict(s: SegmentLog):
             return {"name": s.name, "t": s.t,
@@ -1301,19 +1596,23 @@ def main(args=None):
         results = {
             "config": {
                 "pop_size": POP_SIZE, "n_gen": N_GEN,
-                "dist_x": DIST_X, "dist_return": DIST_RETURN,
+                "dist_x": DIST_X, "dist_y": DIST_Y, "dist_return": DIST_RETURN,
                 "rot_angle_deg": math.degrees(ROT_ANGLE),
                 "vx_ref": VX_REF, "vy_ref": VY_REF, "wz_ref": WZ_REF,
-                "weights": {"P1": W1, "P2": W2, "P3": W3},
+                "weights": {"P1": W1, "P2": W2, "P3": W3, "P4": W4},
                 "kp_range": KP_RANGE, "ki_range": KI_RANGE, "kd_range": KD_RANGE,
                 "mut_sigma": MUT_SIGMA, "elitism": True,
-                "note": "P2 (lateral) retirada por limitacion fisica de mallas "
-                        "mecanum; sustituida por rotacion pura.",
+                "seed_inicial": SEED_INICIAL,
+                "min_improvement_gen1": MIN_IMPROVEMENT_GEN1,
+                "max_rounds": MAX_ROUNDS,
+                "rtf_min": RTF_MIN, "rtf_max_retries": RTF_MAX_RETRIES,
             },
             "best": {"kp": best_kp, "ki": best_ki, "kd": best_kd,
                      "fitness": best.fitness.values[0]},
+            "rounds": node._round_logs,
+            "discarded_rtf": node._discarded,
             "generations": [
-                {"gen": g.gen, "min": g.min_fit, "mean": g.mean_fit,
+                {"round": g.round, "gen": g.gen, "min": g.min_fit, "mean": g.mean_fit,
                  "max": g.max_fit, "best_kp": g.best_kp,
                  "best_ki": g.best_ki, "best_kd": g.best_kd}
                 for g in node._gen_logs],
@@ -1321,6 +1620,7 @@ def main(args=None):
                 "test1": [_seg_to_dict(s) for s in segs1],
                 "test2": [_seg_to_dict(s) for s in segs2],
                 "test3": [_seg_to_dict(s) for s in segs3],
+                "test4": [_seg_to_dict(s) for s in segs4],
             },
         }
 
@@ -1330,7 +1630,7 @@ def main(args=None):
         node.get_logger().info(f"JSON guardado en {json_path}")
 
         _build_plots(node._gen_logs, node._all_individuals,
-                     segs1, segs2, segs3,
+                     segs1, segs2, segs3, segs4,
                      best_kp, best_ki, best_kd)
 
     finally:
