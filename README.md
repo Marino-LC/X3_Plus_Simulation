@@ -64,9 +64,10 @@ Todo lo relevante está en `src/omni_dofbot_bringup`.
 | Componente | Archivo | Función |
 |---|---|---|
 | **Launch único** | `launch/arena_nav.launch.py` | Simulación + control + Nav2 en una terminal; elige `localization:=amcl\|slam` |
-| Simulación | `launch/omni_dofbot_controller.launch.py` | Gazebo, robot, controladores, puentes ROS–Gazebo, nodo cinemático y nodo de odometría |
+| Simulación | `launch/omni_dofbot_controller.launch.py` | Gazebo, robot, controladores, puentes ROS–Gazebo, nodo cinemático, nodo de odometría y filtro del LiDAR |
 | Control de ruedas | `src/mecanum_kinematic_node.py` | `/cmd_vel` → velocidad por rueda, con PID incremental a 100 Hz que imita el firmware |
 | Odometría | `src/Mecanum_odometry_node.py` | Integra `/joint_states`; publica `/odom` y el TF `odom → base_footprint` |
+| Filtro del LiDAR | `src/scan_self_filter.py` | Quita de `/scan` los rayos que golpean al propio robot y publica `/scan_filtered`, que consumen AMCL, costmaps, `collision_monitor` y slam_toolbox |
 | Navegación | `launch/nav2_arena.launch.py`, `config/nav2_params.yaml` | Nav2 con AMCL + mapa de referencia, o con slam_toolbox |
 | SLAM | `launch/slam_toolbox.launch.py`, `config/slam_toolbox.yaml` | slam_toolbox asíncrono en modo mapping |
 | Experimento | `src/waypoints_nav.py` | Ejecuta los episodios, calcula las métricas y escribe los resultados |
@@ -208,7 +209,13 @@ Antes de lanzar las 20 corridas:
 ros2 topic list | grep contacts
 ```
 
-3. **Collision monitor.** Si el robot no se mueve al enviar el primer goal y el log muestra que `collision_monitor` ordena detenerse, el LiDAR probablemente está detectando partes del propio robot (mástil, brazo) dentro de la zona de paro. Comprueba con RViz el tópico `/scan` alrededor del robot. Mientras se corrige, lanza con `use_collision_monitor:=false`.
+3. **Filtro del LiDAR y collision monitor.** Cada 10 s el nodo `scan_self_filter` imprime cuántos rayos eliminó por caer dentro de la huella del robot (`N/1667 rayos dentro de la huella...`). Con el robot detenido lejos de obstáculos, `cmd_vel` debe recibir datos en cuanto se envía un goal:
+
+```bash
+ros2 topic hz /cmd_vel
+```
+
+   Si el log sigue mostrando `Robot to stop due to PolygonStop polygon` con el robot lejos de todo, compara `/scan` y `/scan_filtered` en RViz alrededor del robot: puede haber partes del robot fuera de la huella. Sube el parámetro `margin` del filtro o, mientras tanto, lanza con `use_collision_monitor:=false`.
 4. **SLAM.** En modo SLAM, tras cada reset el log no debe mostrar `SLAM no publicó un mapa nuevo tras el reset`.
 5. **Resultados.** Al terminar la corrida de prueba revisa `results/<carpeta>/plots/overview.png` y un `plots/goal_<id>.png`.
 
@@ -274,7 +281,7 @@ En `summary`, cada métrica continua tiene media, desviación estándar, mediana
 
 **RTF limitado a 1.0.** `arena_world.world` fija `real_time_factor` en 1.0, así que el RTF medido nunca superará 1; el costo comparable es la CPU por segundo simulado. Para medir sin ese límite, pon `real_time_factor` en 0 (sin límite) en el mundo.
 
-**El LiDAR puede detectar al propio robot.** Si el LiDAR ve el mástil o el brazo, el `collision_monitor` detiene el robot (ver sección 5). Antes no se notaba porque el monitor no estaba realmente en la cadena de `cmd_vel`.
+**El LiDAR detecta al propio robot.** El haz (~0.19 m del piso) corta el mástil, el brazo y la parte alta del chasis (la malla llega a 0.27 m). En la primera prueba de esta versión eso dejó al `collision_monitor` permanentemente en "stop" (`cmd_vel` vacío) y, en modo SLAM, hizo que el chasis se mapeara como obstáculo en el spawn, por lo que el planificador no encontraba ruta. `scan_self_filter.py` elimina esos rayos (huella + 2 cm) y todos los consumidores usan `/scan_filtered`. Antes no se notaba porque el monitor no estaba realmente en la cadena de `cmd_vel` y AMCL tolera puntos espurios.
 
 **Error de rumbo en una base holonómica.** DWB tiene ahora `vy` habilitado, así que el robot puede avanzar sin mirar en la dirección del plan; el error de rumbo mide cuánto se aparta la orientación del robot de la tangente del plan, no un error de trayectoria.
 

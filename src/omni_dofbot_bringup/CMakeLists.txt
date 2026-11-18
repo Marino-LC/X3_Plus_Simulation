@@ -32,6 +32,7 @@ install(PROGRAMS
   src/zn_tuner.py
   src/ag_motion_tests.py
   src/waypoints_nav.py
+  src/scan_self_filter.py
   maps/generate_map.py
   DESTINATION lib/${PROJECT_NAME}
 )

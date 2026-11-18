@@ -200,6 +200,15 @@ def generate_launch_description():
         output='screen',
     )
 
+    # Quita del /scan los rayos que chocan con el propio robot -> /scan_filtered
+    # (lo consumen AMCL, costmaps, collision_monitor y slam_toolbox)
+    scan_filter_node = Node(
+        package='omni_dofbot_bringup',
+        executable='scan_self_filter.py',
+        name='scan_self_filter',
+        output='screen',
+    )
+
     config_arg = DeclareLaunchArgument(
         name='rvizconfig', default_value=rviz_config_path
     )
@@ -220,6 +229,7 @@ def generate_launch_description():
         gazebo,
         spawn_entity,
         clock_bridge,
+        scan_filter_node,
         rviz2_node,
 
         # 1. Cargar ruedas en INACTIVE (no dispara switch, no falla)
