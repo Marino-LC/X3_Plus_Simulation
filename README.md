@@ -149,14 +149,14 @@ Los resultados quedan en `results/<fecha>_<localización>/` **dentro del directo
 
 ### Con SLAM
 
-La localización del launch y la del ejecutor deben coincidir:
+Solo cambia el launch; el ejecutor detecta solo si está corriendo AMCL o slam_toolbox y lo indica en el log (`Localización detectada: slam`):
 
 ```bash
 ros2 launch omni_dofbot_bringup arena_nav.launch.py localization:=slam
 ```
 
 ```bash
-ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=20 -p localization:=slam
+ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=20
 ```
 
 En modo SLAM el ejecutor reinicia el mapa al inicio de cada episodio (`/slam_toolbox/reset`), de modo que cada episodio construye su propio mapa, y lo alinea con el mundo usando la pose del robot en el spawn.
@@ -178,7 +178,7 @@ Los launch siguen funcionando por separado: `omni_dofbot_controller.launch.py` (
 | Parámetro | Defecto | Significado |
 |---|---|---|
 | `runs` | 20 | Corridas; cada una ejecuta los 5 goals |
-| `localization` | `amcl` | Debe coincidir con el launch |
+| `localization` | `auto` | `auto` detecta si corre AMCL o slam_toolbox. Si se fija `amcl` o `slam` y no coincide con lo que está corriendo, el ejecutor se detiene con un error, porque los goals se enviarían en el marco equivocado |
 | `pos_tol` | 0.08 | Tolerancia de posición en el goal (m), contra la pose real |
 | `yaw_tol` | 0.15 | Tolerancia de orientación (rad), contra la pose real |
 | `goal_timeout` | 90.0 | Límite por episodio, en segundos simulados |

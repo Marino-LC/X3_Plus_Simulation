@@ -36,7 +36,8 @@ EJECUCIÓN (desde la raíz del workspace, con el entorno cargado):
   ros2 launch omni_dofbot_bringup arena_nav.launch.py
   # T2 — experimento
   ros2 run omni_dofbot_bringup waypoints_nav.py --ros-args -p runs:=20
-  # Con SLAM: lanzar con localization:=slam y pasar el mismo parámetro aquí.
+  # Con SLAM: lanzar con localization:=slam. El ejecutor detecta solo si está
+  # corriendo AMCL o slam_toolbox (parámetro localization:=auto).
 
 Regenerar resumen y gráficas de una carpeta:
   python3 -m omni_dofbot_bringup.nav_metrics results/<carpeta>
@@ -104,7 +105,7 @@ class NavExperiment(Node):
 
         # ── Parámetros ────────────────────────────────────────────────────────
         self.declare_parameter("runs", 20)             # N >= 20 episodios por goal
-        self.declare_parameter("localization", "amcl")  # amcl | slam (igual que el launch)
+        self.declare_parameter("localization", "auto")  # auto | amcl | slam
         self.declare_parameter("pos_tol", 0.08)        # m, contra verdad de terreno
         self.declare_parameter("yaw_tol", 0.15)        # rad, contra verdad de terreno
         self.declare_parameter("goal_timeout", 90.0)   # s simulados por episodio
@@ -120,8 +121,8 @@ class NavExperiment(Node):
         self.declare_parameter("kd", 0.938)            # Ganancia Derivativa definitiva
 
         self._loc = str(self.get_parameter("localization").value).lower()
-        if self._loc not in ("amcl", "slam"):
-            raise ValueError("localization debe ser 'amcl' o 'slam'")
+        if self._loc not in ("auto", "amcl", "slam"):
+            raise ValueError("localization debe ser 'auto', 'amcl' o 'slam'")
 
         share = get_package_share_directory("omni_dofbot_bringup")
         goals_file = self.get_parameter("goals_file").value or os.path.join(
@@ -155,12 +156,7 @@ class NavExperiment(Node):
             self.create_client(ClearEntireCostmap, name, callback_group=self._cbg)
             for name in ("/global_costmap/clear_entirely_global_costmap",
                          "/local_costmap/clear_entirely_local_costmap")]
-        self._slam_reset_cli = None
-        if self._loc == "slam":
-            from slam_toolbox.srv import Reset   # solo hace falta en modo SLAM
-            self._SlamReset = Reset
-            self._slam_reset_cli = self.create_client(
-                Reset, "/slam_toolbox/reset", callback_group=self._cbg)
+        self._slam_reset_cli = None          # se crea en _resolve_localization()
         self._cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self._initpose_pub = self.create_publisher(
             PoseWithCovarianceStamped, "/initialpose", 10)
@@ -200,6 +196,40 @@ class NavExperiment(Node):
 
         self.get_logger().info(
             f"Experimento listo — {len(self._goals)} goals, localización={self._loc}")
+
+    def _resolve_localization(self) -> bool:
+        """Detecta qué localización está corriendo (nodos 'amcl' o 'slam_toolbox')
+        y la compara con el parámetro. Un desajuste haría que los goals se envíen
+        en el marco equivocado (el mapa de SLAM nace en el spawn, no en el origen
+        del mundo), así que se aborta en lugar de medir corridas inválidas."""
+        found = None
+        t0 = time.time()
+        while found is None and time.time() - t0 < 20.0:
+            names = set(self.get_node_names())
+            has_amcl, has_slam = "amcl" in names, "slam_toolbox" in names
+            if has_amcl and has_slam:
+                self.get_logger().error("Están corriendo AMCL y slam_toolbox a la vez")
+                return False
+            found = "amcl" if has_amcl else "slam" if has_slam else None
+            if found is None:
+                time.sleep(0.5)
+        if found is None:
+            self.get_logger().error("No se encontró ni el nodo 'amcl' ni 'slam_toolbox'")
+            return False
+        if self._loc == "auto":
+            self._loc = found
+        elif self._loc != found:
+            self.get_logger().error(
+                f"localization:={self._loc} pero está corriendo {found}. Lanza el "
+                f"experimento con localization:={found} (o auto).")
+            return False
+        if self._loc == "slam":
+            from slam_toolbox.srv import Reset   # solo hace falta en modo SLAM
+            self._SlamReset = Reset
+            self._slam_reset_cli = self.create_client(
+                Reset, "/slam_toolbox/reset", callback_group=self._cbg)
+        self.get_logger().info(f"Localización detectada: {self._loc}")
+        return True
 
     # ── Configuración ─────────────────────────────────────────────────────────
     def _validate_goals(self):
@@ -572,6 +602,8 @@ class NavExperiment(Node):
     # ── Rutina principal ──────────────────────────────────────────────────────
     def run(self):
         runs = int(self.get_parameter("runs").value)
+        if not self._resolve_localization():
+            return
         out_dir = self.get_parameter("output_dir").value or os.path.join(
             os.getcwd(), "results", time.strftime("%Y%m%d_%H%M%S") + f"_{self._loc}")
         for sub in ("traj", "reference_map"):
