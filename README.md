@@ -11,16 +11,16 @@ La especificación de partida es la guía
 resume esas especificaciones tal como quedaron implementadas y da los protocolos
 para ejecutarlas.
 
-## Estado (18 nov 2026, MuJoCo 4.0.1)
+## Estado (19 nov 2026, MuJoCo 4.0.1)
 
 | Parte | Estado |
 |---|---|
-| Modelo con rodillos libres, actuadores, masa 4.8 kg | Implementado; chasis visible otra vez (ver nota) |
+| Modelo con rodillos libres, actuadores, masa 4.8 kg | Implementado; chasis visible y rodillos alineados con el CAD (ver notas) |
 | Arena de 2.42 × 2.42 m, igual en MuJoCo y en `arena_pid_tuning.world` | Implementada |
 | T1–T5, T7, T8, T9 (sin ROS) | **Pasan** con los parámetros de partida (resultados abajo) |
 | AG de Gazebo (`ag_motion_tests.py` sin modificar) sobre MuJoCo, sin ROS | **Funciona**: batería P1–P4 y AG de humo probados (sección [AG en MuJoCo](#ag-en-mujoco-sin-ros-misma-lógica-que-gazebo)) |
-| Puente ROS 2 (`mujoco_bridge_node.py`) | Probado dentro del modo sin ROS; **sin probar con ROS 2 real** |
-| T6, T10, AG completo | Pendientes |
+| Puente ROS 2 (`mujoco_bridge_node.py`) | Probado con ROS 2 Jazzy en el reporte semanal 5 (/clock, /joint_states, cmd_vel, set_entity_pose) |
+| T6, T10, AG completo, AG con ROS real | Pendientes |
 | Calibración con hardware (sección 9 de la guía) | Pendiente; hay herramientas listas |
 
 ## Estructura del repositorio
@@ -52,7 +52,7 @@ src/                              workspace ROS 2 (colcon build desde la raíz)
       run_ag_mujoco.py                AG de Gazebo sobre MuJoCo, sin ROS
     src/mujoco_bridge_node.py       puente ROS 2
     launch/mujoco_ag.launch.py      puente + nodo cinemático + odometría
-    test/test_acceptance.py         T1–T9 con pytest
+    test/test_acceptance.py         T1–T9 + regresiones (chasis visible, rodillos vs CAD)
     test/test_ag_lockstep.py        AG sobre MuJoCo: batería, determinismo, teletransporte
   omni_dofbot_bringup/            AG, ZN, nodo cinemático, odometría, mundos Gazebo
                                   (versión final de la sintonización; ver su README.md)
@@ -113,6 +113,14 @@ Notas:
   supuesto: hay que sustituirlo por el centro de masa e inercias reales.
 - **Colisiones.** Solo chocan rodillos y chasis contra piso y paredes. El brazo
   no tiene geometría de colisión.
+- **Fase de los rodillos (corregida el 19 nov).** Los rodillos se colocaban a
+  partir de 0° en las cuatro ruedas. En el CAD (`omni_mujoco2.xml`) el rodillo 1
+  está a 2.187° en FL/BR (cubo DERECHA) y a 17.814° en FR/BL (cubo IZQUIERDA). En
+  FR y BL eso dejaba los rodillos visibles hasta 10 mm y 12° fuera de las
+  ranuras del cubo: los «rodillos fuera de lugar» del reporte 5. Ahora las fases
+  salen de `params.py` (`roller_phase_deg_diag`, `roller_phase_deg_anti`) y
+  `test_rodillos_coinciden_con_cad` verifica < 1 mm y < 1° contra el CAD. La
+  envolvente de contacto es la misma, así que T1–T9 casi no cambian.
 - **Chasis invisible (corregido el 18 nov).** El generador procesaba dos veces
   las geometrías que cuelgan directo de `base_link`, y en la segunda pasada
   borraba la malla verde del chasis (`base_link_omni_dofbot`). Era solo visual:
@@ -173,14 +181,41 @@ python3 -m pip install deap matplotlib plotly
 
 ### Con ROS 2 Jazzy — para el puente, T6 y T10
 
-En Ubuntu 24.04 `pip` necesita `--break-system-packages` (igual que `deap`):
+Dos formas probadas. Con el Python del sistema (Ubuntu 24.04 pide
+`--break-system-packages`, igual que `deap`):
 
 ```bash
-python3 -m pip install mujoco deap --break-system-packages
+python3 -m pip install mujoco deap matplotlib plotly --break-system-packages
+```
+
+O con un entorno virtual, como en el reporte semanal 5. Dos detalles:
+
+- **Si el venv queda dentro del workspace, `colcon` intenta compilarlo y falla.**
+  Créenlo fuera de la raíz o pongan un `COLCON_IGNORE` dentro del venv. El
+  `.gitignore` ya excluye `venv/` y `.venv/`.
+- **Dentro del venv no están las dependencias de Python de ROS 2.** Instálenlas
+  en el venv, o creen el venv con `--system-site-packages`.
+
+```bash
+python3 -m venv venv && touch venv/COLCON_IGNORE
 ```
 
 ```bash
+source venv/bin/activate
+```
+
+```bash
+pip install mujoco deap matplotlib plotly pyyaml catkin_pkg empy lark numpy setuptools jinja2 typeguard
+```
+
+En los dos casos:
+
+```bash
 sudo apt install ros-jazzy-ros-gz-interfaces
+```
+
+```bash
+source /opt/ros/jazzy/setup.bash
 ```
 
 ```bash
@@ -219,6 +254,11 @@ Regenerar los XML tras cambiar parámetros:
 python3 build_model.py --mu 0.5 --roller_damping 1e-3
 ```
 
+Las banderas solo valen para esa regeneración. Si después se corre
+`build_model.py` sin banderas, los XML vuelven a los valores por defecto de
+`params.py` (μ = 0.68, damping = 1e-4, los de la guía). Para que unos valores
+queden fijos, hay que cambiarlos en `params.py`.
+
 ## Protocolos de prueba
 
 Las pruebas son las de la sección 8 de la guía. El robot se suelta desde
@@ -243,13 +283,13 @@ Lo mismo con pytest, desde la raíz del repositorio:
 python3 -m pytest src/omni_dofbot_mujoco/test -v
 ```
 
-| Prueba | Procedimiento | Criterio | Resultado (14 nov, valores de partida) |
+| Prueba | Procedimiento | Criterio | Resultado (19 nov, valores de partida) |
 |---|---|---|---|
-| T1 Reposo | soltar, esperar 2 s, medir 1 s | velocidad < 1e-3, z estable, sin deriva | pasa: 5.2e-4, z varía 1.2 µm, deriva 0.02 mm |
+| T1 Reposo | soltar, esperar 2 s, medir 1 s | velocidad < 1e-3, z estable, sin deriva | pasa: 6.2e-5, z varía 0.6 µm, deriva 0.06 mm |
 | T2 Avance x | 0.2 m/s, 2 s | error < 5 % | pasa: 0.3993 m (0.18 %) |
-| T3 Lateral y | 0.2 m/s, 2 s | error < 5 % | pasa: 0.3875 m (3.14 %) |
-| T4 Rotación | wz = 1 rad/s, 2 s | error < 5 % | pasa: 1.9874 rad (0.63 %) |
-| T5 Diagonal | vx = vy = 0.2 m/s, 2 s | 45° ± 3° | pasa: 44.57° |
+| T3 Lateral y | 0.2 m/s, 2 s | error < 5 % | pasa: 0.3872 m (3.20 %) |
+| T4 Rotación | wz = 1 rad/s, 2 s | error < 5 % | pasa: 1.9857 rad (0.71 %) |
+| T5 Diagonal | vx = vy = 0.2 m/s, 2 s | 45° ± 3° | pasa: 44.26° |
 | T7 Con brazo | arena, 0.2 m/s 4 s con HOME → PICK_LEFT → HOME → PICK_RIGHT → HOME | inclinación < 15° | pasa: 0.21° |
 | T8 Tiempo real | arena, brazo en movimiento, 3 s | ≥ 1× | pasa: ~16× (solo física, 1 hilo) |
 | T9 Determinismo | misma secuencia 3 veces | `qpos` idéntico | pasa: diferencia 0 |
@@ -273,22 +313,22 @@ Desplazamiento en y [m] con 0.2 m/s durante 2 s (ideal 0.400):
 
 | μ \ damping | 1e-5 | 1e-4 | 1e-3 | 1e-2 |
 |---|---|---|---|---|
-| 0.3 | 0.383 | 0.380 | 0.243 | 0.158 |
-| 0.68 | 0.389 | 0.387 | 0.356 | 0.233 |
-| 1.0 | 0.391 | 0.389 | 0.373 | 0.262 |
+| 0.3 | 0.380 | 0.376 | 0.244 | 0.162 |
+| 0.68 | 0.389 | 0.387 | 0.352 | 0.231 |
+| 1.0 | 0.390 | 0.389 | 0.372 | 0.265 |
 
 Misma tendencia que el esqueleto de la guía: el amortiguamiento del rodillo
 pesa más que μ en el movimiento lateral.
 
 ### Puente ROS 2: verificación inicial
 
-Esta parte no se ha ejecutado todavía. Primer arranque:
+Primer arranque (ejecutado en el reporte semanal 5; resultados abajo):
 
 ```bash
 ros2 launch omni_dofbot_mujoco mujoco_ag.launch.py viewer:=true
 ```
 
-Comprobar, en otra terminal:
+En otra terminal:
 
 ```bash
 ros2 topic hz /clock
@@ -298,18 +338,38 @@ ros2 topic hz /clock
 ros2 topic echo /joint_states --once
 ```
 
+El nodo cinemático trae `kp=1, ki=0` por defecto. Con eso, 0.2 m/s producen
+PWM = 200, debajo de la zona muerta de arranque (`pwm_breakaway_x` = 376), y
+**las ruedas no giran**. Además el watchdog de `cmd_vel` (0.5 s) detiene el
+robot si el comando se publica una sola vez. Para mover el robot, poner las
+ganancias del fabricante y publicar de forma continua (Ctrl+C para detener):
+
 ```bash
-ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}}"
+ros2 param set /mecanum_kinematic_node ki 0.06
+```
+
+```bash
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}}"
 ```
 
 ```bash
 ros2 service call /world/arena_pid_tuning/set_entity_pose ros_gz_interfaces/srv/SetEntityPose "{entity: {name: omni_dofbot, type: 2}, pose: {position: {z: 0.05}, orientation: {z: 0.7071068, w: 0.7071068}}}"
 ```
 
-Se espera: `/clock` cerca de 1000 Hz, las cuatro ruedas y las juntas del brazo
-en `/joint_states`, el robot avanzando hacia +Y del mundo con `cmd_vel` en x, y
-el robot de vuelta en el origen tras el servicio. Si avanza al revés, el signo
-está en los ejes de las juntas de rueda (guía §7, punto 4).
+Se espera: las cuatro ruedas y las juntas del brazo en `/joint_states`, el robot
+avanzando hacia +Y del mundo con `cmd_vel` en x, y el robot de vuelta en el
+origen tras el servicio. Con `ki = 0.06`, el modo sin ROS da 38 cm en 2 s; con
+`kp=1, ki=0`, 0 cm.
+
+Resultados del reporte 5 y lectura:
+
+| Prueba | Resultado | Lectura |
+|---|---|---|
+| `/clock` | 860 Hz (RTF ≈ 0.86) con el visor abierto | `ros2 topic hz` en Python suele quedarse corto a 1 kHz; el dato fiable es el «Factor de tiempo real medido» que imprime el puente cada 10 s. Si es < 0.9, el AG **descarta** esas evaluaciones (`_gated`). Opciones: cerrar el visor, `clock_decimation:=2`, o el AG en paso fijo (no depende del RTF). |
+| `/joint_states` | 15 juntas con posición y velocidad | Correcto (el orden es el del modelo; el AG busca por nombre). |
+| `cmd_vel --once` con 0.2 m/s | Las ruedas casi no giran | Esperado con `kp=1, ki=0`: zona muerta de `mecanum_kinematic_node.py` (ver arriba). Con el mouse en el visor una rueda también cuesta girarla: el servo de velocidad la mantiene en el comando (0 rad/s). |
+| Rodillos fuera de lugar en dos ruedas | Visto en FR y BL | Bug del generador, corregido (ver «Fase de los rodillos»). |
+| `set_entity_pose` | `success=True` | Correcto. |
 
 ### T6. Escalón de rueda contra Gazebo
 
@@ -439,7 +499,7 @@ No las cambié porque la lógica debía quedar igual, pero conviene revisarlas:
    vx en P1, porque la odometría integra las ruedas. El deslizamiento lateral
    real de los rodillos se mide con `/ground_truth/odom`.
 
-### Con ROS 2 real (sin probar)
+### Con ROS 2 real (puente probado, AG aún no)
 
 El mismo AG también puede correr contra el puente en tiempo real, como con Gazebo:
 
@@ -473,7 +533,7 @@ valores candidatos hasta igualar la velocidad en régimen medida.
 
 ## Pendientes y limitaciones
 
-- Probar el puente con ROS 2 Jazzy real y correr T6 y T10 (el AG ya corre sin ROS).
+- Correr T6, T10 y el AG con ROS 2 real; revisar que el factor de tiempo real del puente quede ≥ 0.9.
 - Correr el AG completo en MuJoCo y comparar las ganancias con las de Gazebo.
 - Sustituir la masa concentrada del chasis por inercias reales.
 - Confirmar el par máximo del motor (`wheel_max_torque`) y `wheel_kv` con T6.

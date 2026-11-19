@@ -89,11 +89,12 @@ def _swap_hub(wheel, diag_pos):
                                       "rgba": "0.7 0.7 0.7 1"})
 
 
-def _add_rollers(wheel, name, chir, p):
-    """Rodillos en el marco de la rueda (eje de giro = z local)."""
+def _add_rollers(wheel, name, chir, p, phase_deg=0.0):
+    """Rodillos en el marco de la rueda (eje de giro = z local). `phase_deg`:
+    ángulo del rodillo 1, para que coincidan con las ranuras del cubo del CAD."""
     c45 = math.sqrt(0.5)
     for i in range(p.n_rollers):
-        th = 2 * math.pi * i / p.n_rollers
+        th = 2 * math.pi * i / p.n_rollers + math.radians(phase_deg)
         er = (math.cos(th), math.sin(th))
         et = (-math.sin(th), math.cos(th))
         axis = (c45 * et[0], c45 * et[1], c45 * chir)
@@ -239,7 +240,8 @@ def build_xml(p=None, world="arena", meshdir=None, chassis_mass=1.0):
             j.set("class", "wheel")
             x, y = (float(v) for v in body.get("pos").split()[:2])
             chir = p.roller_sign * (1 if x * y > 0 else -1)
-            _add_rollers(body, jn.replace("_joint", ""), chir, p)
+            phase = p.roller_phase_deg_diag if x * y > 0 else p.roller_phase_deg_anti
+            _add_rollers(body, jn.replace("_joint", ""), chir, p, phase)
             if p.wheel_mesh == "omni":
                 _swap_hub(body, x * y > 0)
         elif jn in ARM_JOINTS or jn in GRIP_JOINTS:

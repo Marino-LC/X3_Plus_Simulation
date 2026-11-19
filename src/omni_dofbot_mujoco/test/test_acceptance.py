@@ -42,3 +42,52 @@ def test_teleport_matches_ag_reset_pose():
     x, y, yaw = sim.pose2d()
     assert abs(x) < 1e-9 and abs(y) < 1e-9 and abs(yaw - 1.5708) < 1e-4
     assert abs(sim.data.qvel).max() == 0.0
+
+
+def _cad_rollers():
+    """Centro y eje de cada rodillo, en el marco de la rueda, del ensamble CAD."""
+    import xml.etree.ElementTree as ET
+    import numpy as np
+    import mujoco
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "omni_description_mujoco",
+                        "urdf", "omni_mujoco2.xml")
+    if not os.path.isfile(path):
+        pytest.skip("no está omni_mujoco2.xml")
+    out = {}
+    for w in ET.parse(path).getroot().iter("body"):
+        if not w.get("name", "").endswith("_wheel"):
+            continue
+        L = []
+        for b in w.findall("body"):
+            R = np.zeros(9)
+            mujoco.mju_quat2Mat(R, np.array(b.get("quat").split(), float))
+            R = R.reshape(3, 3)
+            L.append((np.array(b.get("pos").split(), float) + R @ [0, 0, 0.02119], R[:, 2]))
+        out[w.get("name")] = L
+    return out
+
+
+def test_rodillos_coinciden_con_cad():
+    """Regresión del reporte 5: los rodillos de FR y BL estaban 17.8° fuera de
+    las ranuras del cubo. Cada rodillo debe quedar a < 1 mm y < 1° del CAD."""
+    import math
+    import mujoco
+    import numpy as np
+    m, _ = build_model(ModelParams(), "arena")
+    for wheel, cad in _cad_rollers().items():
+        wid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, wheel)
+        gen = [(m.body_pos[b], m.jnt_axis[m.body_jntadr[b]]) for b in range(m.nbody)
+               if m.body_parentid[b] == wid]
+        for c, a in cad:
+            k = int(np.argmin([np.linalg.norm(c - g) for g, _ in gen]))
+            assert np.linalg.norm(c - gen[k][0]) < 1e-3, wheel
+            assert math.degrees(math.acos(min(1, abs(a @ gen[k][1])))) < 1.0, wheel
+
+
+def test_chasis_visible():
+    """Regresión: la malla visual del chasis debe existir en el modelo."""
+    import mujoco
+    m, _ = build_model(ModelParams(), "arena")
+    mid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_MESH, "base_link_omni_dofbot")
+    assert any(m.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH and m.geom_dataid[g] == mid
+               for g in range(m.ngeom))

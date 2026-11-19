@@ -18,6 +18,9 @@ def generate_launch_description():
         DeclareLaunchArgument('viewer', default_value='false'),
         DeclareLaunchArgument('model_path', default_value=''),
         DeclareLaunchArgument('real_time_factor', default_value='1.0'),
+        # Publicar /clock cada N pasos de 1 ms. Subirlo a 2-5 si el factor de
+        # tiempo real medido queda < 0.9 (el AG descarta esas evaluaciones).
+        DeclareLaunchArgument('clock_decimation', default_value='1'),
         Node(package='omni_dofbot_mujoco', executable='mujoco_bridge_node.py',
              output='screen',
              parameters=[{
@@ -26,6 +29,8 @@ def generate_launch_description():
                                               value_type=str),
                  'real_time_factor': ParameterValue(
                      LaunchConfiguration('real_time_factor'), value_type=float),
+                 'clock_decimation': ParameterValue(
+                     LaunchConfiguration('clock_decimation'), value_type=int),
              }]),
         Node(package='omni_dofbot_bringup', executable='mecanum_kinematic_node.py',
              output='screen', parameters=[sim_time]),

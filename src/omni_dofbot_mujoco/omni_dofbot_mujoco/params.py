@@ -27,6 +27,13 @@ class ModelParams:
     roller_armature: float = 1e-6
     roller_frictionloss: float = 0.0
     roller_sign: int = 1                   # quiralidad; invertir si y sale al revés
+    # Fase angular del rodillo 1 en la rueda [grados], medida del ensamble CAD
+    # (omni_description_mujoco/urdf/omni_mujoco2.xml). Con 0° los rodillos de FR y
+    # BL quedaban 17.8° corridos respecto a las ranuras del cubo IZQUIERDA y se
+    # veían fuera de lugar (reporte semanal 5). Solo cambia dónde está cada
+    # rodillo dentro de la rueda; la envolvente de contacto es la misma.
+    roller_phase_deg_diag: float = 2.187   # FL y BR (cubo DERECHA)
+    roller_phase_deg_anti: float = 17.814  # FR y BL (cubo IZQUIERDA)
     # --- Mallas de rueda (las de omni_mujoco2 son las de por defecto) ------------
     # wheel_mesh: "omni"  = cubo DERECHA/IZQUIERDA + 9 RODILLO visibles por rueda
     #             "hex80" = malla anterior 80mm_mecanum_wheel_hex (solo visual)
