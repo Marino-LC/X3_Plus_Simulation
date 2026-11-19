@@ -388,7 +388,7 @@ _CLK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 
 
 def gazebo_pids():
-    """PIDs de los procesos de Gazebo (gz sim: servidor y, si existe, GUI)."""
+    """PIDs de los procesos de Gazebo (gz sim / ign gazebo: servidor y GUI)."""
     pids = []
     for pid in os.listdir("/proc") if os.path.isdir("/proc") else []:
         if not pid.isdigit():
@@ -399,7 +399,14 @@ def gazebo_pids():
         except OSError:
             continue
         names = [os.path.basename(a) for a in args]
-        if ("gz" in names and "sim" in args) or any(n.startswith("gz-sim") for n in names):
+        joined = " ".join(names)
+        if (
+            ("gz" in names and "sim" in args)
+            or ("ign" in names and "gazebo" in args)
+            or any(n.startswith(("gz-sim", "gz sim", "ign gazebo")) for n in names)
+            or "gz sim" in joined
+            or "ign gazebo" in joined
+        ):
             pids.append(int(pid))
     return pids
 

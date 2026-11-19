@@ -34,7 +34,7 @@ goals:
     label: "esquina_suroeste"
     x:  -1.00
     y:  -0.90
-    yaw: 3.1416
+    yaw: 1.5708
     note: "Trayecto casi recto hacia el oeste; llegada cerca de dos paredes."
 
   - id: 2
@@ -48,7 +48,7 @@ goals:
     label: "detras_del_muro"
     x:   0.00
     y:   0.85
-    yaw: 1.5708
+    yaw: 3.1416
     note: "Oculto tras el muro O3: obliga a rodearlo por un costado."
 
   - id: 4
