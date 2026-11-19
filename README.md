@@ -284,7 +284,9 @@ En `summary`, cada métrica continua tiene media, desviación estándar, mediana
 
 **El LiDAR detecta al propio robot.** El haz (~0.19 m del piso) corta el mástil, el brazo y la parte alta del chasis (la malla llega a 0.27 m). En la primera prueba de esta versión eso dejó al `collision_monitor` permanentemente en "stop" (`cmd_vel` vacío) y, en modo SLAM, hizo que el chasis se mapeara como obstáculo en el spawn, por lo que el planificador no encontraba ruta. `scan_self_filter.py` elimina esos rayos (huella + 2 cm) y todos los consumidores usan `/scan_filtered`. Antes no se notaba porque el monitor no estaba realmente en la cadena de `cmd_vel` y AMCL tolera puntos espurios.
 
-**Error de rumbo en una base holonómica.** DWB tiene ahora `vy` habilitado, así que el robot puede avanzar sin mirar en la dirección del plan; el error de rumbo mide cuánto se aparta la orientación del robot de la tangente del plan, no un error de trayectoria.
+**Navegación holonómica.** DWB ya no usa los críticos `PathAlign` y `GoalAlign`: puntúan un punto 0.325 m delante de la nariz del robot, así que premiaban girar hasta mirar en la dirección de la ruta, y el robot navegaba como diferencial aunque `vy` estuviera habilitado. En su lugar, `Twirling` penaliza la velocidad angular para que el robot conserve su orientación y se desplace en x/y. La orientación final la sigue ajustando `RotateToGoal` al llegar: en goals con un yaw distinto al del spawn, el robot llega y después gira. Para rotar mientras avanza haría falta el controlador MPPI con `motion_model: "Omni"`.
+
+**Error de rumbo en una base holonómica.** Como el robot puede avanzar sin mirar en la dirección del plan, el error de rumbo mide cuánto se aparta la orientación del robot de la tangente del plan, no un error de trayectoria.
 
 **Cambios de esta versión sobre parámetros del equipo:**
 

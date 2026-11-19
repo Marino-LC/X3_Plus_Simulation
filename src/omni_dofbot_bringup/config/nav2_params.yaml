@@ -130,10 +130,16 @@ controller_server:
       # CENTRO del robot, y con una huella rectangular (radio circunscrito 0.216 m)
       # la parte trasera golpeaba las esquinas de O3 al girar. ObstacleFootprint
       # descarta toda trayectoria en la que la huella completa toque celdas letales.
-      critics: ["RotateToGoal","Oscillation","ObstacleFootprint","GoalAlign","PathAlign","PathDist","GoalDist"]
+      #
+      # Sin PathAlign ni GoalAlign (base holonómica): esos críticos puntúan un punto
+      # 0.325 m DELANTE de la nariz del robot, así que premian girar hasta mirar en la
+      # dirección de la ruta y el robot navegaba como diferencial aunque vy estuviera
+      # habilitado. Twirling penaliza |vtheta| para que, sin esos críticos, el robot
+      # conserve su orientación y se desplace en x/y; RotateToGoal sigue ajustando la
+      # orientación final dentro de xy_goal_tolerance.
+      critics: ["RotateToGoal","Oscillation","ObstacleFootprint","PathDist","GoalDist","Twirling"]
       ObstacleFootprint.scale: 0.02
-      PathAlign.scale:    32.0
-      GoalAlign.scale:    24.0
+      Twirling.scale:     1.0           # súbelo si aún gira de más; bájalo si tarda en corregir
       PathDist.scale:     32.0
       GoalDist.scale:     24.0
       RotateToGoal.scale: 32.0
