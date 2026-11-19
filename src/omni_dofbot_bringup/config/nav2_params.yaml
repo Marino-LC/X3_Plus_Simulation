@@ -139,7 +139,7 @@ controller_server:
       # orientación final dentro de xy_goal_tolerance.
       critics: ["RotateToGoal","Oscillation","ObstacleFootprint","PathDist","GoalDist","Twirling"]
       ObstacleFootprint.scale: 0.02
-      Twirling.scale:     1.0           # súbelo si aún gira de más; bájalo si tarda en corregir
+      Twirling.scale:     0.80           # súbelo si aún gira de más; bájalo si tarda en corregir
       PathDist.scale:     32.0
       GoalDist.scale:     24.0
       RotateToGoal.scale: 32.0

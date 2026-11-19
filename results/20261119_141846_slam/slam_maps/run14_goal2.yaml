@@ -1,0 +1,7 @@
+image: run14_goal2.pgm
+mode: trinary
+resolution: 0.019999999552965164
+origin: [-1.3645233185396348, -0.4623532476428417, 0.0]
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25

@@ -1,0 +1,1224 @@
+{
+  "config": {
+    "simulator": "gazebo",
+    "world": "arena_world",
+    "localization": "amcl",
+    "runs": 1,
+    "pos_tol": 0.08,
+    "yaw_tol": 0.15,
+    "goal_timeout": 90.0,
+    "pid_gains": {
+      "kp": 1.949,
+      "ki": 0.256,
+      "kd": 0.938
+    },
+    "spawn": {
+      "x": 0.0,
+      "y": -0.91,
+      "yaw": 1.5708
+    },
+    "goals": [
+      {
+        "id": 1,
+        "label": "esquina_suroeste",
+        "x": -1.0,
+        "y": -0.9,
+        "yaw": 1.5708,
+        "footprint_clearance": 0.19999944902050634,
+        "shortest_path_length": 1.0000499987500624,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            -1.0,
+            -0.9
+          ]
+        ]
+      },
+      {
+        "id": 2,
+        "label": "esquina_sureste",
+        "x": 0.95,
+        "y": -0.85,
+        "yaw": 0.0,
+        "footprint_clearance": 0.2200000000000001,
+        "shortest_path_length": 0.951892851112981,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            0.95,
+            -0.85
+          ]
+        ]
+      },
+      {
+        "id": 3,
+        "label": "detras_del_muro",
+        "x": 0.0,
+        "y": 0.85,
+        "yaw": 3.1416,
+        "footprint_clearance": 0.3299988980428498,
+        "shortest_path_length": 2.0795221465441647,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            0.4900000000000002,
+            0.31000000000000005
+          ],
+          [
+            0.4900000000000002,
+            0.41000000000000014
+          ],
+          [
+            0.43000000000000016,
+            0.5100000000000002
+          ],
+          [
+            0.0,
+            0.85
+          ]
+        ]
+      },
+      {
+        "id": 4,
+        "label": "pasillo_oeste",
+        "x": -1.0,
+        "y": 0.25,
+        "yaw": 1.5708,
+        "footprint_clearance": 0.16691787327300062,
+        "shortest_path_length": 1.684191785468869,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            -0.8499999999999999,
+            -0.44999999999999984
+          ],
+          [
+            -0.8899999999999999,
+            -0.34999999999999987
+          ],
+          [
+            -1.0,
+            0.25
+          ]
+        ]
+      },
+      {
+        "id": 5,
+        "label": "pasillo_este",
+        "x": 0.95,
+        "y": 0.2,
+        "yaw": -1.5708,
+        "footprint_clearance": 0.24999937555256885,
+        "shortest_path_length": 1.531341985302848,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            0.3500000000000001,
+            -0.1499999999999999
+          ],
+          [
+            0.95,
+            0.2
+          ]
+        ]
+      }
+    ],
+    "reference_map": "reference_map/arena_map.yaml",
+    "gazebo_pids": [
+      41435,
+      41436
+    ],
+    "started_at": "2026-11-19 13:54:24"
+  },
+  "summary": {
+    "overall": {
+      "n_episodes": 5,
+      "n_success": 0,
+      "success_rate": 0.0,
+      "wilson_95": [
+        0.0,
+        0.43449149475208104
+      ],
+      "total_collisions": 0,
+      "total_recoveries": 0,
+      "fail_reasons": {
+        "nav2_fallo": 2,
+        "fuera_de_tolerancia": 3
+      },
+      "spl": {
+        "mean": 0.0,
+        "std": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 5
+      },
+      "mission_time": {
+        "mean": 4.598000000000004,
+        "std": 4.192864593568463,
+        "median": 7.063000000000017,
+        "min": 0.05999999999998806,
+        "max": 8.715000000000003,
+        "n": 5
+      },
+      "path_length": {
+        "mean": 0.5373974297703683,
+        "std": 0.4965017472636936,
+        "median": 0.7754101691347197,
+        "min": 0.0,
+        "max": 0.9850648916619674,
+        "n": 5
+      },
+      "final_pos_error": {
+        "mean": 0.9890651419722938,
+        "std": 0.024879125190670332,
+        "median": 1.0002573940678756,
+        "min": 0.9518470555103998,
+        "max": 1.012955896148765,
+        "n": 5
+      },
+      "final_yaw_error": {
+        "mean": 0.33142828593045104,
+        "std": 0.6925762260291537,
+        "median": 0.03188830053669722,
+        "min": 0.0010909386992468129,
+        "max": 1.5701251115002017,
+        "n": 5
+      },
+      "ate_localization": {
+        "mean": 0.9265576791022487,
+        "std": 0.015251388206748904,
+        "median": 0.9233424861449416,
+        "min": 0.9130857407163495,
+        "max": 0.9490129457758385,
+        "n": 5
+      },
+      "ate_odometry": {
+        "mean": 0.028137564292958644,
+        "std": 0.03522228580693965,
+        "median": 0.008514619898168256,
+        "min": 3.4371099124299754e-13,
+        "max": 0.0736279658674808,
+        "n": 5
+      },
+      "cte_rmse": {
+        "mean": 0.9183931960653156,
+        "std": 0.020485975455738287,
+        "median": 0.9139795407491914,
+        "min": 0.9004737989050976,
+        "max": 0.9407262485416575,
+        "n": 3
+      },
+      "heading_rmse": {
+        "mean": 1.5156113614232123,
+        "std": 1.2034554113530747,
+        "median": 1.905690914553447,
+        "min": 0.16550302248299273,
+        "max": 2.4756401472331975,
+        "n": 3
+      },
+      "cte_initial_plan_rmse": {
+        "mean": 0.7217040736219117,
+        "std": 0.30242986347043777,
+        "median": 0.8544224107866829,
+        "min": 0.37560716258436294,
+        "max": 0.9350826474946893,
+        "n": 3
+      },
+      "recoveries": {
+        "mean": 0.0,
+        "std": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 5
+      },
+      "collisions": {
+        "mean": 0.0,
+        "std": 0.0,
+        "median": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 5
+      },
+      "replans": {
+        "mean": 10.2,
+        "std": 9.391485505499118,
+        "median": 16.0,
+        "min": 0.0,
+        "max": 19.0,
+        "n": 5
+      },
+      "rtf": {
+        "mean": 0.5089609232082479,
+        "std": 0.11919925784393745,
+        "median": 0.43225451095949485,
+        "min": 0.4203525825976015,
+        "max": 0.6775693919489958,
+        "n": 5
+      },
+      "cpu_gazebo_per_sim_s": {
+        "mean": 3.3276527749241103,
+        "std": 0.2229303257568584,
+        "median": 3.4308663224325966,
+        "min": 2.941176470588383,
+        "max": 3.4768492377188007,
+        "n": 5
+      },
+      "cpu_total_per_sim_s": {
+        "mean": 8.2136507111687,
+        "std": 0.950108800293153,
+        "median": 8.744693057945966,
+        "min": 7.166666666672943,
+        "max": 9.143139469226227,
+        "n": 5
+      },
+      "map_iou": null,
+      "map_iou_tol1": null,
+      "map_wall_error_cm": null
+    },
+    "per_goal": {
+      "1": {
+        "n_episodes": 1,
+        "n_success": 0,
+        "success_rate": 0.0,
+        "wilson_95": [
+          0.0,
+          0.7934567085261071
+        ],
+        "total_collisions": 0,
+        "total_recoveries": 0,
+        "fail_reasons": {
+          "nav2_fallo": 1
+        },
+        "spl": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "mission_time": {
+          "mean": 0.05999999999998806,
+          "std": 0.0,
+          "median": 0.05999999999998806,
+          "min": 0.05999999999998806,
+          "max": 0.05999999999998806,
+          "n": 1
+        },
+        "path_length": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "final_pos_error": {
+          "mean": 1.0002573940678756,
+          "std": 0.0,
+          "median": 1.0002573940678756,
+          "min": 1.0002573940678756,
+          "max": 1.0002573940678756,
+          "n": 1
+        },
+        "final_yaw_error": {
+          "mean": 0.0010909386992468129,
+          "std": 0.0,
+          "median": 0.0010909386992468129,
+          "min": 0.0010909386992468129,
+          "max": 0.0010909386992468129,
+          "n": 1
+        },
+        "ate_localization": {
+          "mean": 0.9130857407163495,
+          "std": 0.0,
+          "median": 0.9130857407163495,
+          "min": 0.9130857407163495,
+          "max": 0.9130857407163495,
+          "n": 1
+        },
+        "ate_odometry": {
+          "mean": 3.4371099124299754e-13,
+          "std": 0.0,
+          "median": 3.4371099124299754e-13,
+          "min": 3.4371099124299754e-13,
+          "max": 3.4371099124299754e-13,
+          "n": 1
+        },
+        "cte_rmse": null,
+        "heading_rmse": null,
+        "cte_initial_plan_rmse": null,
+        "recoveries": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "collisions": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "replans": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "rtf": {
+          "mean": 0.5929420413124405,
+          "std": 0.0,
+          "median": 0.5929420413124405,
+          "min": 0.5929420413124405,
+          "max": 0.5929420413124405,
+          "n": 1
+        },
+        "cpu_gazebo_per_sim_s": {
+          "mean": 3.3333333333328596,
+          "std": 0.0,
+          "median": 3.3333333333328596,
+          "min": 3.3333333333328596,
+          "max": 3.3333333333328596,
+          "n": 1
+        },
+        "cpu_total_per_sim_s": {
+          "mean": 7.166666666672943,
+          "std": 0.0,
+          "median": 7.166666666672943,
+          "min": 7.166666666672943,
+          "max": 7.166666666672943,
+          "n": 1
+        },
+        "map_iou": null,
+        "map_iou_tol1": null,
+        "map_wall_error_cm": null
+      },
+      "2": {
+        "n_episodes": 1,
+        "n_success": 0,
+        "success_rate": 0.0,
+        "wilson_95": [
+          0.0,
+          0.7934567085261071
+        ],
+        "total_collisions": 0,
+        "total_recoveries": 0,
+        "fail_reasons": {
+          "nav2_fallo": 1
+        },
+        "spl": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "mission_time": {
+          "mean": 0.06800000000001205,
+          "std": 0.0,
+          "median": 0.06800000000001205,
+          "min": 0.06800000000001205,
+          "max": 0.06800000000001205,
+          "n": 1
+        },
+        "path_length": {
+          "mean": 1.3452257769385211e-06,
+          "std": 0.0,
+          "median": 1.3452257769385211e-06,
+          "min": 1.3452257769385211e-06,
+          "max": 1.3452257769385211e-06,
+          "n": 1
+        },
+        "final_pos_error": {
+          "mean": 0.9518470555103998,
+          "std": 0.0,
+          "median": 0.9518470555103998,
+          "min": 0.9518470555103998,
+          "max": 0.9518470555103998,
+          "n": 1
+        },
+        "final_yaw_error": {
+          "mean": 1.5701251115002017,
+          "std": 0.0,
+          "median": 1.5701251115002017,
+          "min": 1.5701251115002017,
+          "max": 1.5701251115002017,
+          "n": 1
+        },
+        "ate_localization": {
+          "mean": 0.9132401535891328,
+          "std": 0.0,
+          "median": 0.9132401535891328,
+          "min": 0.9132401535891328,
+          "max": 0.9132401535891328,
+          "n": 1
+        },
+        "ate_odometry": {
+          "mean": 6.016030120387879e-07,
+          "std": 0.0,
+          "median": 6.016030120387879e-07,
+          "min": 6.016030120387879e-07,
+          "max": 6.016030120387879e-07,
+          "n": 1
+        },
+        "cte_rmse": null,
+        "heading_rmse": null,
+        "cte_initial_plan_rmse": null,
+        "recoveries": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "collisions": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "replans": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "rtf": {
+          "mean": 0.6775693919489958,
+          "std": 0.0,
+          "median": 0.6775693919489958,
+          "min": 0.6775693919489958,
+          "max": 0.6775693919489958,
+          "n": 1
+        },
+        "cpu_gazebo_per_sim_s": {
+          "mean": 2.941176470588383,
+          "std": 0.0,
+          "median": 2.941176470588383,
+          "min": 2.941176470588383,
+          "max": 2.941176470588383,
+          "n": 1
+        },
+        "cpu_total_per_sim_s": {
+          "mean": 7.2058823529366895,
+          "std": 0.0,
+          "median": 7.2058823529366895,
+          "min": 7.2058823529366895,
+          "max": 7.2058823529366895,
+          "n": 1
+        },
+        "map_iou": null,
+        "map_iou_tol1": null,
+        "map_wall_error_cm": null
+      },
+      "3": {
+        "n_episodes": 1,
+        "n_success": 0,
+        "success_rate": 0.0,
+        "wilson_95": [
+          0.0,
+          0.7934567085261071
+        ],
+        "total_collisions": 0,
+        "total_recoveries": 0,
+        "fail_reasons": {
+          "fuera_de_tolerancia": 1
+        },
+        "spl": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "mission_time": {
+          "mean": 7.084000000000003,
+          "std": 0.0,
+          "median": 7.084000000000003,
+          "min": 7.084000000000003,
+          "max": 7.084000000000003,
+          "n": 1
+        },
+        "path_length": {
+          "mean": 0.7754101691347197,
+          "std": 0.0,
+          "median": 0.7754101691347197,
+          "min": 0.7754101691347197,
+          "max": 0.7754101691347197,
+          "n": 1
+        },
+        "final_pos_error": {
+          "mean": 1.012955896148765,
+          "std": 0.0,
+          "median": 1.012955896148765,
+          "min": 1.012955896148765,
+          "max": 1.012955896148765,
+          "n": 1
+        },
+        "final_yaw_error": {
+          "mean": 0.03188830053669722,
+          "std": 0.0,
+          "median": 0.03188830053669722,
+          "min": 0.03188830053669722,
+          "max": 0.03188830053669722,
+          "n": 1
+        },
+        "ate_localization": {
+          "mean": 0.9341070692849808,
+          "std": 0.0,
+          "median": 0.9341070692849808,
+          "min": 0.9341070692849808,
+          "max": 0.9341070692849808,
+          "n": 1
+        },
+        "ate_odometry": {
+          "mean": 0.008514619898168256,
+          "std": 0.0,
+          "median": 0.008514619898168256,
+          "min": 0.008514619898168256,
+          "max": 0.008514619898168256,
+          "n": 1
+        },
+        "cte_rmse": {
+          "mean": 0.9139795407491914,
+          "std": 0.0,
+          "median": 0.9139795407491914,
+          "min": 0.9139795407491914,
+          "max": 0.9139795407491914,
+          "n": 1
+        },
+        "heading_rmse": {
+          "mean": 0.16550302248299273,
+          "std": 0.0,
+          "median": 0.16550302248299273,
+          "min": 0.16550302248299273,
+          "max": 0.16550302248299273,
+          "n": 1
+        },
+        "cte_initial_plan_rmse": {
+          "mean": 0.37560716258436294,
+          "std": 0.0,
+          "median": 0.37560716258436294,
+          "min": 0.37560716258436294,
+          "max": 0.37560716258436294,
+          "n": 1
+        },
+        "recoveries": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "collisions": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "replans": {
+          "mean": 16.0,
+          "std": 0.0,
+          "median": 16.0,
+          "min": 16.0,
+          "max": 16.0,
+          "n": 1
+        },
+        "rtf": {
+          "mean": 0.4203525825976015,
+          "std": 0.0,
+          "median": 0.4203525825976015,
+          "min": 0.4203525825976015,
+          "max": 0.4203525825976015,
+          "n": 1
+        },
+        "cpu_gazebo_per_sim_s": {
+          "mean": 3.4768492377188007,
+          "std": 0.0,
+          "median": 3.4768492377188007,
+          "min": 3.4768492377188007,
+          "max": 3.4768492377188007,
+          "n": 1
+        },
+        "cpu_total_per_sim_s": {
+          "mean": 9.143139469226227,
+          "std": 0.0,
+          "median": 9.143139469226227,
+          "min": 9.143139469226227,
+          "max": 9.143139469226227,
+          "n": 1
+        },
+        "map_iou": null,
+        "map_iou_tol1": null,
+        "map_wall_error_cm": null
+      },
+      "4": {
+        "n_episodes": 1,
+        "n_success": 0,
+        "success_rate": 0.0,
+        "wilson_95": [
+          0.0,
+          0.7934567085261071
+        ],
+        "total_collisions": 0,
+        "total_recoveries": 0,
+        "fail_reasons": {
+          "fuera_de_tolerancia": 1
+        },
+        "spl": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "mission_time": {
+          "mean": 7.063000000000017,
+          "std": 0.0,
+          "median": 7.063000000000017,
+          "min": 7.063000000000017,
+          "max": 7.063000000000017,
+          "n": 1
+        },
+        "path_length": {
+          "mean": 0.9850648916619674,
+          "std": 0.0,
+          "median": 0.9850648916619674,
+          "min": 0.9850648916619674,
+          "max": 0.9850648916619674,
+          "n": 1
+        },
+        "final_pos_error": {
+          "mean": 1.0041395303088245,
+          "std": 0.0,
+          "median": 1.0041395303088245,
+          "min": 1.0041395303088245,
+          "max": 1.0041395303088245,
+          "n": 1
+        },
+        "final_yaw_error": {
+          "mean": 0.034087359951863405,
+          "std": 0.0,
+          "median": 0.034087359951863405,
+          "min": 0.034087359951863405,
+          "max": 0.034087359951863405,
+          "n": 1
+        },
+        "ate_localization": {
+          "mean": 0.9490129457758385,
+          "std": 0.0,
+          "median": 0.9490129457758385,
+          "min": 0.9490129457758385,
+          "max": 0.9490129457758385,
+          "n": 1
+        },
+        "ate_odometry": {
+          "mean": 0.05854463409578841,
+          "std": 0.0,
+          "median": 0.05854463409578841,
+          "min": 0.05854463409578841,
+          "max": 0.05854463409578841,
+          "n": 1
+        },
+        "cte_rmse": {
+          "mean": 0.9407262485416575,
+          "std": 0.0,
+          "median": 0.9407262485416575,
+          "min": 0.9407262485416575,
+          "max": 0.9407262485416575,
+          "n": 1
+        },
+        "heading_rmse": {
+          "mean": 1.905690914553447,
+          "std": 0.0,
+          "median": 1.905690914553447,
+          "min": 1.905690914553447,
+          "max": 1.905690914553447,
+          "n": 1
+        },
+        "cte_initial_plan_rmse": {
+          "mean": 0.9350826474946893,
+          "std": 0.0,
+          "median": 0.9350826474946893,
+          "min": 0.9350826474946893,
+          "max": 0.9350826474946893,
+          "n": 1
+        },
+        "recoveries": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "collisions": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "replans": {
+          "mean": 16.0,
+          "std": 0.0,
+          "median": 16.0,
+          "min": 16.0,
+          "max": 16.0,
+          "n": 1
+        },
+        "rtf": {
+          "mean": 0.4216860892227063,
+          "std": 0.0,
+          "median": 0.4216860892227063,
+          "min": 0.4216860892227063,
+          "max": 0.4216860892227063,
+          "n": 1
+        },
+        "cpu_gazebo_per_sim_s": {
+          "mean": 3.4560385105479132,
+          "std": 0.0,
+          "median": 3.4560385105479132,
+          "min": 3.4560385105479132,
+          "max": 3.4560385105479132,
+          "n": 1
+        },
+        "cpu_total_per_sim_s": {
+          "mean": 8.807872009061676,
+          "std": 0.0,
+          "median": 8.807872009061676,
+          "min": 8.807872009061676,
+          "max": 8.807872009061676,
+          "n": 1
+        },
+        "map_iou": null,
+        "map_iou_tol1": null,
+        "map_wall_error_cm": null
+      },
+      "5": {
+        "n_episodes": 1,
+        "n_success": 0,
+        "success_rate": 0.0,
+        "wilson_95": [
+          0.0,
+          0.7934567085261071
+        ],
+        "total_collisions": 0,
+        "total_recoveries": 0,
+        "fail_reasons": {
+          "fuera_de_tolerancia": 1
+        },
+        "spl": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "mission_time": {
+          "mean": 8.715000000000003,
+          "std": 0.0,
+          "median": 8.715000000000003,
+          "min": 8.715000000000003,
+          "max": 8.715000000000003,
+          "n": 1
+        },
+        "path_length": {
+          "mean": 0.9265107428293772,
+          "std": 0.0,
+          "median": 0.9265107428293772,
+          "min": 0.9265107428293772,
+          "max": 0.9265107428293772,
+          "n": 1
+        },
+        "final_pos_error": {
+          "mean": 0.9761258338256035,
+          "std": 0.0,
+          "median": 0.9761258338256035,
+          "min": 0.9761258338256035,
+          "max": 0.9761258338256035,
+          "n": 1
+        },
+        "final_yaw_error": {
+          "mean": 0.01994971896424591,
+          "std": 0.0,
+          "median": 0.01994971896424591,
+          "min": 0.01994971896424591,
+          "max": 0.01994971896424591,
+          "n": 1
+        },
+        "ate_localization": {
+          "mean": 0.9233424861449416,
+          "std": 0.0,
+          "median": 0.9233424861449416,
+          "min": 0.9233424861449416,
+          "max": 0.9233424861449416,
+          "n": 1
+        },
+        "ate_odometry": {
+          "mean": 0.0736279658674808,
+          "std": 0.0,
+          "median": 0.0736279658674808,
+          "min": 0.0736279658674808,
+          "max": 0.0736279658674808,
+          "n": 1
+        },
+        "cte_rmse": {
+          "mean": 0.9004737989050976,
+          "std": 0.0,
+          "median": 0.9004737989050976,
+          "min": 0.9004737989050976,
+          "max": 0.9004737989050976,
+          "n": 1
+        },
+        "heading_rmse": {
+          "mean": 2.4756401472331975,
+          "std": 0.0,
+          "median": 2.4756401472331975,
+          "min": 2.4756401472331975,
+          "max": 2.4756401472331975,
+          "n": 1
+        },
+        "cte_initial_plan_rmse": {
+          "mean": 0.8544224107866829,
+          "std": 0.0,
+          "median": 0.8544224107866829,
+          "min": 0.8544224107866829,
+          "max": 0.8544224107866829,
+          "n": 1
+        },
+        "recoveries": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "collisions": {
+          "mean": 0.0,
+          "std": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "n": 1
+        },
+        "replans": {
+          "mean": 19.0,
+          "std": 0.0,
+          "median": 19.0,
+          "min": 19.0,
+          "max": 19.0,
+          "n": 1
+        },
+        "rtf": {
+          "mean": 0.43225451095949485,
+          "std": 0.0,
+          "median": 0.43225451095949485,
+          "min": 0.43225451095949485,
+          "max": 0.43225451095949485,
+          "n": 1
+        },
+        "cpu_gazebo_per_sim_s": {
+          "mean": 3.4308663224325966,
+          "std": 0.0,
+          "median": 3.4308663224325966,
+          "min": 3.4308663224325966,
+          "max": 3.4308663224325966,
+          "n": 1
+        },
+        "cpu_total_per_sim_s": {
+          "mean": 8.744693057945966,
+          "std": 0.0,
+          "median": 8.744693057945966,
+          "min": 8.744693057945966,
+          "max": 8.744693057945966,
+          "n": 1
+        },
+        "map_iou": null,
+        "map_iou_tol1": null,
+        "map_wall_error_cm": null
+      }
+    },
+    "invalid_episodes": 0
+  },
+  "episodes": [
+    {
+      "run": 1,
+      "goal_id": 1,
+      "valid": true,
+      "success": false,
+      "fail_reason": "nav2_fallo",
+      "nav_status": 6,
+      "mission_time": 0.05999999999998806,
+      "wall_time": 0.10119032859802246,
+      "rtf": 0.5929420413124405,
+      "cpu_gazebo_per_sim_s": 3.3333333333328596,
+      "cpu_total_per_sim_s": 7.166666666672943,
+      "shortest_path_length": 1.0000499987500624,
+      "final_pos_error": 1.0002573940678756,
+      "final_yaw_error": 0.0010909386992468129,
+      "within_tolerance": false,
+      "recoveries": 0,
+      "collisions": 0,
+      "collision_events": [],
+      "replans": 0,
+      "T_world_map": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_world_odom": [
+        0.00020732159355307605,
+        -0.9100084065989821,
+        -0.001087265500227197
+      ],
+      "path_length": 0.0,
+      "spl": 0.0,
+      "ate_localization": 0.9130857407163495,
+      "ate_odometry": 3.4371099124299754e-13,
+      "yaw_rmse_localization": 0.0058927344987344645,
+      "cte_rmse": null,
+      "cte_max": null,
+      "heading_rmse": null,
+      "cte_initial_plan_rmse": null,
+      "n_samples": 10,
+      "files": {
+        "trajectory": "traj/run01_goal1.csv",
+        "plans": "traj/run01_goal1_plans.csv"
+      },
+      "map_iou": null,
+      "map_iou_tol1": null,
+      "map_wall_error_cm": null
+    },
+    {
+      "run": 1,
+      "goal_id": 2,
+      "valid": true,
+      "success": false,
+      "fail_reason": "nav2_fallo",
+      "nav_status": 6,
+      "mission_time": 0.06800000000001205,
+      "wall_time": 0.10035872459411621,
+      "rtf": 0.6775693919489958,
+      "cpu_gazebo_per_sim_s": 2.941176470588383,
+      "cpu_total_per_sim_s": 7.2058823529366895,
+      "shortest_path_length": 0.951892851112981,
+      "final_pos_error": 0.9518470555103998,
+      "final_yaw_error": 1.5701251115002017,
+      "within_tolerance": false,
+      "recoveries": 0,
+      "collisions": 0,
+      "collision_events": [],
+      "replans": 0,
+      "T_world_map": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_world_odom": [
+        5.721549383510571e-05,
+        -0.9101631208975369,
+        -0.0006683865474945705
+      ],
+      "path_length": 1.3452257769385211e-06,
+      "spl": 0.0,
+      "ate_localization": 0.9132401535891328,
+      "ate_odometry": 6.016030120387879e-07,
+      "yaw_rmse_localization": 0.006311047800467237,
+      "cte_rmse": null,
+      "cte_max": null,
+      "heading_rmse": null,
+      "cte_initial_plan_rmse": null,
+      "n_samples": 10,
+      "files": {
+        "trajectory": "traj/run01_goal2.csv",
+        "plans": "traj/run01_goal2_plans.csv"
+      },
+      "map_iou": null,
+      "map_iou_tol1": null,
+      "map_wall_error_cm": null
+    },
+    {
+      "run": 1,
+      "goal_id": 3,
+      "valid": true,
+      "success": false,
+      "fail_reason": "fuera_de_tolerancia",
+      "nav_status": 4,
+      "mission_time": 7.084000000000003,
+      "wall_time": 16.852519273757935,
+      "rtf": 0.4203525825976015,
+      "cpu_gazebo_per_sim_s": 3.4768492377188007,
+      "cpu_total_per_sim_s": 9.143139469226227,
+      "shortest_path_length": 2.0795221465441647,
+      "final_pos_error": 1.012955896148765,
+      "final_yaw_error": 0.03188830053669722,
+      "within_tolerance": false,
+      "recoveries": 0,
+      "collisions": 0,
+      "collision_events": [],
+      "replans": 16,
+      "T_world_map": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_world_odom": [
+        -5.926408448622179e-05,
+        -0.9099246837287412,
+        0.00037729824874244144
+      ],
+      "path_length": 0.7754101691347197,
+      "spl": 0.0,
+      "ate_localization": 0.9341070692849808,
+      "ate_odometry": 0.008514619898168256,
+      "yaw_rmse_localization": 0.013142796537345864,
+      "cte_rmse": 0.9139795407491914,
+      "cte_max": 0.9484003072540766,
+      "heading_rmse": 0.16550302248299273,
+      "cte_initial_plan_rmse": 0.37560716258436294,
+      "n_samples": 127,
+      "files": {
+        "trajectory": "traj/run01_goal3.csv",
+        "plans": "traj/run01_goal3_plans.csv"
+      },
+      "map_iou": null,
+      "map_iou_tol1": null,
+      "map_wall_error_cm": null
+    },
+    {
+      "run": 1,
+      "goal_id": 4,
+      "valid": true,
+      "success": false,
+      "fail_reason": "fuera_de_tolerancia",
+      "nav_status": 4,
+      "mission_time": 7.063000000000017,
+      "wall_time": 16.749426126480103,
+      "rtf": 0.4216860892227063,
+      "cpu_gazebo_per_sim_s": 3.4560385105479132,
+      "cpu_total_per_sim_s": 8.807872009061676,
+      "shortest_path_length": 1.684191785468869,
+      "final_pos_error": 1.0041395303088245,
+      "final_yaw_error": 0.034087359951863405,
+      "within_tolerance": false,
+      "recoveries": 0,
+      "collisions": 0,
+      "collision_events": [],
+      "replans": 16,
+      "T_world_map": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_world_odom": [
+        0.0005878185114063174,
+        -0.9085624770636365,
+        0.0015780720139826343
+      ],
+      "path_length": 0.9850648916619674,
+      "spl": 0.0,
+      "ate_localization": 0.9490129457758385,
+      "ate_odometry": 0.05854463409578841,
+      "yaw_rmse_localization": 0.02130996674991406,
+      "cte_rmse": 0.9407262485416575,
+      "cte_max": 0.972921553755974,
+      "heading_rmse": 1.905690914553447,
+      "cte_initial_plan_rmse": 0.9350826474946893,
+      "n_samples": 126,
+      "files": {
+        "trajectory": "traj/run01_goal4.csv",
+        "plans": "traj/run01_goal4_plans.csv"
+      },
+      "map_iou": null,
+      "map_iou_tol1": null,
+      "map_wall_error_cm": null
+    },
+    {
+      "run": 1,
+      "goal_id": 5,
+      "valid": true,
+      "success": false,
+      "fail_reason": "fuera_de_tolerancia",
+      "nav_status": 4,
+      "mission_time": 8.715000000000003,
+      "wall_time": 20.1617329120636,
+      "rtf": 0.43225451095949485,
+      "cpu_gazebo_per_sim_s": 3.4308663224325966,
+      "cpu_total_per_sim_s": 8.744693057945966,
+      "shortest_path_length": 1.531341985302848,
+      "final_pos_error": 0.9761258338256035,
+      "final_yaw_error": 0.01994971896424591,
+      "within_tolerance": false,
+      "recoveries": 0,
+      "collisions": 0,
+      "collision_events": [],
+      "replans": 19,
+      "T_world_map": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "T_world_odom": [
+        -0.00012876033196133728,
+        -0.9097738605489677,
+        0.0065768772606125125
+      ],
+      "path_length": 0.9265107428293772,
+      "spl": 0.0,
+      "ate_localization": 0.9233424861449416,
+      "ate_odometry": 0.0736279658674808,
+      "yaw_rmse_localization": 0.031080258723167338,
+      "cte_rmse": 0.9004737989050976,
+      "cte_max": 0.9356048825428329,
+      "heading_rmse": 2.4756401472331975,
+      "cte_initial_plan_rmse": 0.8544224107866829,
+      "n_samples": 154,
+      "files": {
+        "trajectory": "traj/run01_goal5.csv",
+        "plans": "traj/run01_goal5_plans.csv"
+      },
+      "map_iou": null,
+      "map_iou_tol1": null,
+      "map_wall_error_cm": null
+    }
+  ]
+}
