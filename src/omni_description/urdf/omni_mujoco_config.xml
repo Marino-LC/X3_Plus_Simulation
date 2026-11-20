@@ -1,0 +1,22 @@
+<!-- Configuración: se inyecta dentro de <mujoco>. Sin <option>/<compiler> duplicados. -->
+<option integrator="implicitfast"/>
+
+<actuator>
+  <!-- Control por velocidad de rueda (rad/s). Límites tomados del URDF:
+       velocity=25, effort=100. Ajusta kv y forcerange a tus motores reales. -->
+  <velocity name="motor_front_left"  joint="front_left_joint"  kv="0.05" ctrlrange="-25 25" forcerange="-100 100"/>
+  <velocity name="motor_front_right" joint="front_right_joint" kv="0.05" ctrlrange="-25 25" forcerange="-100 100"/>
+  <velocity name="motor_back_right"  joint="back_right_joint"  kv="0.05" ctrlrange="-25 25" forcerange="-100 100"/>
+  <velocity name="motor_back_left"   joint="back_left_joint"   kv="0.05" ctrlrange="-25 25" forcerange="-100 100"/>
+</actuator>
+
+<sensor>
+  <jointpos name="pos_front_left"  joint="front_left_joint"/>
+  <jointpos name="pos_front_right" joint="front_right_joint"/>
+  <jointpos name="pos_back_right"  joint="back_right_joint"/>
+  <jointpos name="pos_back_left"   joint="back_left_joint"/>
+  <jointvel name="vel_front_left"  joint="front_left_joint"/>
+  <jointvel name="vel_front_right" joint="front_right_joint"/>
+  <jointvel name="vel_back_right"  joint="back_right_joint"/>
+  <jointvel name="vel_back_left"   joint="back_left_joint"/>
+</sensor>
