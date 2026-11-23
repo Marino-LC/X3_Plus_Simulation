@@ -469,6 +469,53 @@ teletransporte):
 python3 -m pytest src/omni_dofbot_mujoco/test/test_ag_lockstep.py -v
 ```
 
+### Qué se ve en la terminal
+
+Cada línea lleva el tiempo de simulación entre corchetes. Una evaluación (batería
+P1–P4) se ve así:
+
+```
+[    0.050] [INFO] [ag_motion_evaluator] === [Progreso AG] Tiempo: 00:00:00 | Ronda: 1 | Gen: 0/3 | Ind: 1/8 ===
+[    0.050] [INFO] [ag_motion_evaluator] [AG] Kp=1.000 Ki=0.000 Kd=0.000
+[    0.050] [INFO] [ag_motion_evaluator] ── P1: línea recta adelante-atrás ──
+[    1.000] [INFO] [ag_motion_evaluator] Odometría reseteada a (0, 0, 90°).
+[    1.400] [INFO] [ag_motion_evaluator] [Brazo] hilo iniciado — pick & place lado a lado
+[   11.087] [INFO] [ag_motion_evaluator]    ITAE=6.5302 t=9.1s err_f=0.001m cost=79.0470
+...
+[   63.567] [INFO] [ag_motion_evaluator] [AG] P1=79.0460 P2=68.5563 P3=70.7782 P4=665.4622 fit=221.07179 RTF=1.00 (min 1.00) retries=0
+```
+
+Al cerrar cada generación aparece `[RONDA r | GEN g] min=... mean=... best=[Kp,Ki,Kd]`.
+Al final aparece `MEJOR INDIVIDUO` con Kp, Ki, Kd y el fitness, luego la corrida
+grabada del mejor, `JSON guardado en ...` y `[plot] PNG/HTML guardado en ...`.
+La última línea la escribe `run_ag_mujoco.py`:
+`Tiempo de simulación ... s en ... s de pared (≈4-5x)`.
+
+Señales normales:
+
+- **Semilla `[1, 0, 0]` con fitness ≈ 221.** Es la primera evaluación de la
+  ronda 1 y lleva `PENALTY_TO`, porque con Ki = 0 no se vence la zona muerta.
+- **`RTF=1.00` y `Controladores descartados por RTF: 0`.** En paso fijo siempre es así.
+- **Con `--smoke`: `Se alcanzó MAX_ROUNDS=1 ...`.** El humo corre una sola ronda a propósito.
+
+Señales de problema: `Traceback`, `ERROR`, `Aborto temprano — deriva lateral` en
+casi todos los individuos, o costos ≥ 50 con las ganancias del fabricante.
+
+Duración aproximada (en esta máquina; en WSL puede ser más lento):
+
+| Corrida | Evaluaciones | Tiempo |
+|---|---|---|
+| `--battery` | 1 | 5–6 s |
+| `--smoke` | unas 23, más la corrida del mejor | 2.5 min |
+| AG completo | unas 785 por ronda; desde la 2a ronda se corta si la 1a generación mejora < 10 % | ≈ 1.3 h por ronda (estimado) |
+
+`ag_results.*` se escriben al terminar. `ag_log.txt` se va escribiendo
+durante la corrida. Si se corta con Ctrl+C, solo queda el log.
+
+Con `--viewer`, en una pantalla virtual (Xvfb) el proceso puede terminar con
+`Segmentation fault` **al cerrar**, después de guardar los resultados. Pasa
+igual con un visor de MuJoCo mínimo, sin código del proyecto.
+
 ### Resultados (18 nov, parámetros de partida del modelo)
 
 | Corrida | Resultado |

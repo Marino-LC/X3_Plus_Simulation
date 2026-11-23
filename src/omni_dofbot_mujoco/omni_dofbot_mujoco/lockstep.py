@@ -66,6 +66,19 @@ def _load(name, path):
     return mod
 
 
+def _reset_deap_creator():
+    """ag_motion_tests.py llama a creator.create("FitnessMin"/"Individual") al
+    importarse. Al crear varios LockstepWorld en un proceso (p. ej. pytest) DEAP
+    avisaría que las clases ya existen; se borran antes de recargar el AG."""
+    try:
+        from deap import creator
+    except ImportError:
+        return
+    for name in ("Individual", "FitnessMin"):
+        if hasattr(creator, name):
+            delattr(creator, name)
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # Planificador cooperativo
 # ═════════════════════════════════════════════════════════════════════════════
@@ -195,6 +208,7 @@ class LockstepWorld:
                         os.path.join(bdir, "mecanum_kinematic_node.py"))
         odom_mod = _load("Mecanum_odometry_node",
                          os.path.join(bdir, "Mecanum_odometry_node.py"))
+        _reset_deap_creator()   # el AG hace creator.create() al importarse
         self.ag = _load("ag_motion_tests", os.path.join(bdir, "ag_motion_tests.py"))
 
         self.bridge = bridge_mod.MujocoBridge(sim=self.sim)
@@ -219,6 +233,7 @@ class LockstepWorld:
         line = f"[{self.sim.time:9.3f}] [{level}] [{node}] {msg}"
         if self._log_file:
             self._log_file.write(line + "\n")
+            self._log_file.flush()   # el registro sirve aunque se corte con Ctrl+C
         if self.verbose or level != "INFO" or node not in QUIET_NODES:
             print(line, flush=True)
 

@@ -10,21 +10,12 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from omni_dofbot_mujoco.lockstep import LockstepWorld  # noqa: E402
-from deap import creator
 
 FABRICANTE = (0.8, 0.06, 0.5)     # ganancias del firmware Yahboom
 
-def _limpiar_deap():
-    for nombre in ("Individual", "FitnessMin"):
-        if hasattr(creator, nombre):
-            delattr(creator, nombre)
 
 def _battery(gains):
-    _limpiar_deap()
-    w = LockstepWorld()
-    return w, w.evaluate(*gains)
-
-def _battery(gains):
+    # LockstepWorld limpia las clases de deap.creator antes de cargar el AG.
     w = LockstepWorld()
     return w, w.evaluate(*gains)
 
