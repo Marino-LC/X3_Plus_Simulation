@@ -20,7 +20,8 @@ def read_rows(paths):
             for r in csv.DictReader(f):
                 for k in NUMERIC:
                     r[k] = float(r[k]) if r.get(k) not in (None, '') else float('nan')
-                for k in ('view', 'fused', 'in_view', 'distractor'):
+                for k in ('view', 'fused', 'in_view', 'in_view_rgbd', 'in_view_mono',
+                          'distractor'):
                     r[k] = int(r[k]) if r.get(k) not in (None, '') else 0
                 r['class_ok'] = int(r['class_ok']) if r.get('class_ok') not in (None, '') else None
                 rows.append(r)
@@ -39,6 +40,43 @@ def _rates(rows):
     return {'recall': metrics.rate(len(tp), len(tp) + len(fn)),
             'false_positive_rate': metrics.rate(len(fp), len(tp) + len(fp)),
             'class_accuracy': metrics.rate(sum(1 for r in tp if r['class_ok']), len(tp))}
+
+
+def _visibility(r):
+    """Qué cámaras tenían el objeto en cuadro en esa vista."""
+    rg, mo = r.get('in_view_rgbd'), r.get('in_view_mono')
+    return {(1, 1): 'ambas', (1, 0): 'solo rgbd', (0, 1): 'solo mono'}.get((rg, mo))
+
+
+def _rates_by(rows, key_fn):
+    """Recall y exactitud de clase por grupo (filas TP/FN de objetos reales)."""
+    groups = {}
+    for r in rows:
+        if r['status'] in ('TP', 'FN'):
+            k = key_fn(r)
+            if k is not None:
+                groups.setdefault(k, []).append(r)
+    out = {}
+    for k, g in sorted(groups.items()):
+        tp = [r for r in g if r['status'] == 'TP']
+        out[k] = {'recall': metrics.rate(len(tp), len(g)),
+                  'class_accuracy': metrics.rate(sum(1 for r in tp if r['class_ok']), len(tp))}
+    return out
+
+
+def _coverage_by_camera(rows):
+    """Objetos reales vistos en >= 1 vista por cada cámara (filas por vista)."""
+    objs = {}
+    for r in rows:
+        if r.get('obj_id') in (None, '') or r['distractor']:
+            continue
+        o = objs.setdefault((r['scene_id'], r['obj_id']), [0, 0])
+        o[0] |= r['in_view_rgbd']
+        o[1] |= r['in_view_mono']
+    n = len(objs)
+    return {'rgbd': metrics.rate(sum(v[0] for v in objs.values()), n),
+            'mono': metrics.rate(sum(v[1] for v in objs.values()), n),
+            'any': metrics.rate(sum(v[0] | v[1] for v in objs.values()), n)}
 
 
 def _cut(tp, key_fn, n_boot):
@@ -91,7 +129,12 @@ def summarize(rows, fused_rows, cfg):
         'pedestal_height_m': _cut(tp, lambda r: '%.2f' % r['pedestal_height'], n_boot),
         'scene_type': _cut(tp, lambda r: r['scene_type'], n_boot),
         'class': _cut(tp, lambda r: r['class_gt'], n_boot),
+        'source': _cut(tp, lambda r: r.get('source') or None, n_boot),
     }
+    # Identificación con las dos cámaras.
+    pv['by_source'] = _rates_by(rows, lambda r: r.get('source') or None)
+    pv['by_visibility'] = _rates_by(rows, _visibility)
+    pv['coverage_by_camera'] = _coverage_by_camera(rows)
     ftp = [r for r in fused_rows if r['status'] == 'TP']
     targets = [r for r in fused_rows if r['status'] in ('TP', 'FN')]
     fu = s['fused']
@@ -126,7 +169,7 @@ def _f(x, nd=3):
 
 def _stat_line(name, d, unit, nd=3):
     if not d.get('n'):
-        return '| %s | 0 | — | — | — | — | — |' % name
+        return '| %s (%s) | 0 | — | — | — | — | — |' % (name, unit)
     ci = d.get('median_ci95')
     ci_s = '[%s, %s]' % (_f(ci[0], nd), _f(ci[1], nd)) if ci else '—'
     return '| %s (%s) | %d | %s | %s | %s | %s | %s |' % (
@@ -164,6 +207,18 @@ def to_markdown(summaries):
             out += ['', 'Tiempo de inferencia por imagen: p50 = %s ms, p95 = %s ms (n = %d).'
                     % (_f(pv['infer_ms']['p50'], 1), _f(pv['infer_ms']['p95'], 1),
                        pv['infer_ms']['n'])]
+        out += ['', '### Identificación por cámara', '',
+                'Exactitud de clase según la fuente de la estimación (`rgbd+mono` = '
+                'clase votada por las dos cámaras) y recall según qué cámaras tenían el '
+                'objeto en cuadro.', '',
+                '| Fuente | Exactitud de clase | % | Wilson 95 % |', '|---|---|---|---|']
+        out += [_rate_line(k, d['class_accuracy']) for k, d in pv['by_source'].items()]
+        out += ['', '| Objeto en cuadro de | Recall | % | Wilson 95 % |', '|---|---|---|---|']
+        out += [_rate_line(k, d['recall']) for k, d in pv['by_visibility'].items()]
+        cov = pv['coverage_by_camera']
+        out += ['', '| Cobertura de la pasada por cámara | k/n | % | Wilson 95 % |',
+                '|---|---|---|---|', _rate_line('Astra (rgbd)', cov['rgbd']),
+                _rate_line('Dofbot (mono)', cov['mono']), _rate_line('Cualquiera', cov['any'])]
         out += ['', '### Pasada completa (fusión entre vistas)', ''] + hdr
         out.append(_stat_line('Error de posición', fu['e_pos_m'], 'm'))
         out += ['', '| Tasa | k/n | % | Wilson 95 % |', '|---|---|---|---|',

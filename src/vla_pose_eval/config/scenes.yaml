@@ -12,6 +12,7 @@ placement:
   robot_keepout_m: 0.45           # distancia mínima pedestal <-> cualquier vista del robot
   max_object_offset_m: 0.03       # desplazamiento aleatorio del objeto sobre el pedestal
   require_visible: true           # reintenta hasta que todo objeto quede en cuadro en >= 1 vista
+  visible_by: [rgbd, mono]        # cámaras que cuentan para require_visible (al menos una)
   max_attempts: 500
   static_objects: true            # verdad exacta; poner false cuando haya manipulación (Fase 2)
 

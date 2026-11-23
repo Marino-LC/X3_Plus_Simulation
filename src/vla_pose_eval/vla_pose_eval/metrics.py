@@ -5,6 +5,8 @@ from collections import Counter
 
 import numpy as np
 
+CAMERAS = ('rgbd', 'mono')     # orden canónico de la columna `source`
+
 
 # ── Error por estimación ─────────────────────────────────────────────────────
 def error_components(p_est_base, p_gt_base, cam_origin_base):
@@ -61,7 +63,7 @@ def fuse(estimates_map, radius):
     """Agrupa estimaciones (en `map`) de varias vistas y las fusiona.
 
     `estimates_map`: lista de dicts con 'position' (3), 'class', 'conf' y
-    opcionalmente 'yaw'. No usa la verdad de referencia: agrupa por cercanía
+    opcionalmente 'yaw' y 'source' (cámaras que la produjeron). No usa la verdad de referencia: agrupa por cercanía
     al centroide (voraz, de mayor a menor confianza). Por grupo promedia la
     posición, vota la clase y toma la media circular del yaw de la clase ganadora.
     """
@@ -88,9 +90,13 @@ def fuse(estimates_map, radius):
                 if m['class'] == cls and m.get('yaw') is not None]
         yaw = (math.atan2(sum(math.sin(y) for y in yaws), sum(math.cos(y) for y in yaws))
                if yaws else None)
+        sources = set()
+        for mem in c['members']:
+            sources.update(str(mem.get('source', 'rgbd')).split('+'))
         fused.append({'position': [float(v) for v in c['centroid']], 'class': cls,
                       'conf': float(np.mean([m.get('conf', 1.0) for m in c['members']])),
-                      'yaw': yaw, 'n_views': len(c['members'])})
+                      'yaw': yaw, 'n_views': len(c['members']),
+                      'source': '+'.join(s for s in CAMERAS if s in sources)})
     return fused
 
 

@@ -7,6 +7,10 @@
   en el marco del mundo) en el tópico gz /model/<nombre>/pose. Esa pose es la
   verdad de referencia del robot en cada vista; no se usa la odometría.
 
+  Añade además el marco óptico de la cámara del Dofbot (mono_optical_link: z al
+  frente, x a la derecha, y abajo), con la misma convención que camera_PC_link
+  de la Astra, para transformar sus detecciones con TF.
+
   No modifica el robot de los demás launch.
 -->
 <robot name="robot_scara" xmlns:xacro="http://ros.org/wiki/xacro">
@@ -25,5 +29,12 @@
             <update_frequency>30</update_frequency>
         </plugin>
     </gazebo>
+
+    <link name="mono_optical_link"/>
+    <joint name="mono_optical_joint" type="fixed">
+        <parent link="monocular_camera_link"/>
+        <child link="mono_optical_link"/>
+        <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+    </joint>
 
 </robot>

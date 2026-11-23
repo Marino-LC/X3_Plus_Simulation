@@ -5,7 +5,7 @@ import os
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-NAMES = ('eval', 'objects', 'scenes', 'views')
+NAMES = ('eval', 'objects', 'scenes', 'views', 'noise')
 
 
 def default_config_dir():
@@ -33,6 +33,6 @@ def dump_yaml(data, path):
 
 
 def load_config(config_dir=None):
-    """Devuelve {'eval':…, 'objects':…, 'scenes':…, 'views':…}."""
+    """Devuelve {'eval':…, 'objects':…, 'scenes':…, 'views':…, 'noise':…}."""
     config_dir = config_dir or default_config_dir()
     return {n: load_yaml(os.path.join(config_dir, n + '.yaml')) for n in NAMES}

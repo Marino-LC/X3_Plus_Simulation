@@ -8,28 +8,49 @@ robot_name: omni_dofbot           # nombre con el que se hace spawn del robot
 frames:
   map: map                        # en esta fase, map == marco del mundo de Gazebo
   base: base_footprint
-  camera_optical: camera_PC_link  # marco óptico (z al frente) de la RGB-D
+  camera_optical: camera_PC_link  # marco óptico (z al frente) de la RGB-D (Astra)
+  mono_optical: mono_optical_link # marco óptico de la cámara del Dofbot (omni_dofbot_vla.xacro)
 
-# Cámara RGB-D del mástil (omni_description/urdf/camera_sensor.xacro).
-# Modelo nominal: lo usan el planificador de vistas, el estimador oráculo y el
-# modo sin Gazebo (dry-run). En un ensayo real, recon_pass guarda K (de
-# camera_info) y T_base_cam (de TF) por vista, y esos son los que se usan.
-camera:
-  width: 640
-  height: 480
-  hfov: 1.0193                    # rad (~58.4 grados; vertical ~45.5 grados)
-  depth_near: 0.6                 # m, <depth_camera><clip><near>: sin profundidad más cerca
-  depth_far: 8.0
-  # camera_link en base_footprint: base_joint z=0.0815 + camera_joint (-0.035, 0, 0.45)
-  xyz_in_base: [-0.035, 0.0, 0.5315]   # verificar con: ros2 run tf2_ros tf2_echo base_footprint camera_PC_link
-  pitch_down_deg: 0.0             # la cámara mira horizontal
-  image_margin_px: 20             # margen para considerar un objeto "en cuadro"
+# Modelos NOMINALES de las cámaras. Los usan el planificador de vistas, el
+# generador de escenas (visibilidad), el oráculo y el modo sin Gazebo (dry-run).
+# En un ensayo real, recon_pass guarda por vista K (de camera_info) y la
+# extrínseca (de TF) de cada cámara, y esos son los que usa el evaluador.
+cameras:
+  # Astra del mástil (omni_description/urdf/camera_sensor.xacro).
+  rgbd:
+    width: 1280
+    height: 720
+    hfov: 1.0472                  # rad (60 grados; vertical ~36 grados)
+    depth_near: 0.6               # m, <depth_camera><clip><near>: sin profundidad más cerca
+    depth_far: 8.0
+    # camera_link en base_footprint: base_joint z=0.0815 + camera_joint (-0.035, 0, 0.45)
+    xyz_in_base: [-0.035, 0.0, 0.5315]   # verificar: ros2 run tf2_ros tf2_echo base_footprint camera_PC_link
+    yaw_deg: 0.0
+    pitch_down_deg: 0.0           # mira horizontal
+    image_margin_px: 20           # margen para considerar un objeto "en cuadro"
+  # Cámara monocular del Dofbot (dofbot_description/urdf/monocular_camera_sensor.xacro),
+  # montada en arm_link_04. Sin profundidad: aporta identificación (clase) y una
+  # posición aproximada por tamaño aparente en el campo cercano que la Astra no ve.
+  mono:
+    width: 640
+    height: 480
+    hfov: 0.7142                  # rad (~41 grados; vertical ~31 grados)
+    depth_near: 0.05              # solo limita la visibilidad (clip del sensor)
+    depth_far: 8.0
+    # Cinemática directa con el brazo en arm.observation_pose (calculada del URDF).
+    xyz_in_base: [0.236, -0.010, 0.350]  # verificar: tf2_echo base_footprint mono_optical_link
+    yaw_deg: -4.0
+    pitch_down_deg: 0.0
+    image_margin_px: 10
 
 # Tópicos ROS (lado ROS de ros_gz_bridge; ver launch/vla_pose_eval.launch.py).
 topics:
   rgb: /camera/image
-  depth: /camera/depth_image
+  depth: /camera/depth_image                 # con ruido (nodo depth_noise) si depth_noise:=true
   camera_info: /camera/camera_info
+  mono_rgb: /mono_camera/image_raw
+  mono_camera_info: /mono_camera/camera_info
+  depth_noise_config: /camera/depth_noise/config
   robot_pose_gt: /model/omni_dofbot/pose     # PosePublisher de Gazebo (omni_dofbot_vla.xacro)
   arm_trajectory: /dofbot_trajectory_controller/joint_trajectory
   estimates: /vla/estimates
@@ -38,6 +59,8 @@ topics:
   input_rgb: /vla/input/image
   input_depth: /vla/input/depth
   input_camera_info: /vla/input/camera_info
+  input_mono_rgb: /vla/input/mono/image
+  input_mono_camera_info: /vla/input/mono/camera_info
 
 arm:
   joints: [arm_joint_01, arm_joint_02, arm_joint_03, arm_joint_04, arm_joint_05]
@@ -50,6 +73,7 @@ recon:
   settle_time_s: 1.0              # tiempo de simulación tras cada teleport
   capture_timeout_s: 5.0
   estimate_timeout_s: 30.0        # solo en modo en línea
+  use_mono: true                  # capturar también la cámara del Dofbot
 
 evaluation:
   association_threshold_m: 0.15

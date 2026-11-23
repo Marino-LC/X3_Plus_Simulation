@@ -112,6 +112,30 @@ def test_distractor_detection_is_false_positive(tmp_path, cfg):
     assert not [r for r in clean if r.get('distractor')]       # ignorarlo no genera filas
 
 
+def test_multicam_perfect_and_sources(tmp_path, cfg):
+    """Oráculo con dos cámaras y sin ruido: 3D exacto donde hay profundidad."""
+    trial, gt = _trial(tmp_path, cfg, 'S3', 5)
+    est = load_estimator('oracle_multicam')
+    data = ev.run_estimator(trial, est, cfg)
+    assert data['cameras'] == ['rgbd', 'mono']
+    rows, frows = ev.evaluate_trial_dir(trial, 'oracle_multicam', cfg)
+    tp = [r for r in rows if r['status'] == 'TP']
+    assert {r['source'] for r in tp} <= {'rgbd', 'mono', 'rgbd+mono'}
+    assert all(r['e_pos'] < 1e-9 for r in tp if r['source'] != 'mono')
+    assert all(r['class_ok'] == 1 for r in tp)
+    for r in rows:                                     # in_view = alguna de las dos cámaras
+        assert r.get('in_view', 0) == int(bool(r.get('in_view_rgbd') or r.get('in_view_mono'))) \
+            or r['status'] == 'FP'
+    assert all(r['status'] in ('TP', 'FN') for r in frows)
+
+
+def test_rgbd_only_ignores_mono_visibility(tmp_path, cfg):
+    trial, gt = _trial(tmp_path, cfg, 'S3', 5)
+    rows, _ = _run(trial, cfg)
+    assert all(r['status'] == 'OUT' for r in rows
+               if r.get('in_view_mono') and not r.get('in_view_rgbd') and not r['distractor'])
+
+
 def test_baseline_lift_recovers_center():
     """Caja 2D + profundidad -> centro del objeto (con corrección superficie-centro)."""
     K = g.intrinsics_from_fov(640, 480, 1.0193)
@@ -138,15 +162,20 @@ def test_dry_run_end_to_end(tmp_path, cfg, capsys):
     assert cli.main(['dry-run', '--out', out, '--seeds', '0', '4']) == 0
     trials = dataset.find_trials(out)
     assert len(trials) == 12
-    assert all(os.path.isfile(dataset.errors_path(t, 'oracle')) for t in trials)
-    summaries, md = report.build_report(out, ['oracle'], cfg)
+    assert all(os.path.isfile(dataset.errors_path(t, e)) for t in trials
+               for e in ('oracle', 'oracle_multicam'))
+    summaries, md = report.build_report(out, ['oracle', 'oracle_multicam'], cfg)
     s = summaries['oracle']
     assert s['n_scenes'] == 12
     assert 0.0 < s['per_view']['e_pos_m']['median'] < 0.05
     lo, hi = s['per_view']['e_pos_m']['median_ci95']
     assert lo <= s['per_view']['e_pos_m']['median'] <= hi
-    assert s['fused']['coverage']['rate'] == 1.0
     assert set(s['per_view']['cuts']) == {'distance_m', 'view_angle_deg', 'pedestal_height_m',
-                                          'scene_type', 'class'}
-    assert 'Wilson' in md
+                                          'scene_type', 'class', 'source'}
+    assert set(s['per_view']['by_source']) == {'rgbd'}
+    m = summaries['oracle_multicam']
+    assert m['fused']['coverage']['rate'] == 1.0          # visible_by: [rgbd, mono]
+    assert m['fused']['coverage']['rate'] >= s['fused']['coverage']['rate']
+    assert {'rgbd+mono', 'mono'} <= set(m['per_view']['by_source'])
+    assert 'Wilson' in md and 'Identificación por cámara' in md
     assert cli.main(['check-views', out]) == 0

@@ -1,0 +1,46 @@
+# Ruido de cámaras (fidelidad sim -> real).
+#
+# Dos capas:
+#
+# 1. Ruido de IMAGEN (RGB) en Gazebo, en el SDF de cada sensor (<camera><noise>):
+#      Astra   omni_description/urdf/camera_sensor.xacro          gaussiano, stddev 0.007
+#      Dofbot  dofbot_description/urdf/monocular_camera_sensor.xacro  gaussiano, stddev 0.012
+#    stddev en intensidad normalizada [0, 1] (0.007 ~ 1.8 niveles de 8 bits). Se
+#    aplica en el render, así que lo ve cualquier nodo. Se edita en esos xacro.
+#
+# 2. Ruido de PROFUNDIDAD de la Astra: nodo `depth_noise` (vla_pose_eval). Gazebo
+#    solo ofrece ruido gaussiano aditivo constante; una cámara de luz estructurada
+#    real tiene error que crece con z^2, profundidad en escalones (disparidad
+#    cuantizada) y huecos en bordes. Este nodo se intercala entre el puente y
+#    /camera/depth_image (launch: depth_noise:=true).
+#
+# Los valores por defecto salen de la literatura de cámaras de luz estructurada
+# tipo Kinect v1 / Astra (p. ej. Khoshelham y Elberink, 2012: ~4 cm de desviación
+# a 5 m). Son PROPUESTAS: ajustarlas con mediciones de la Astra real (plano a
+# distancias conocidas) antes de reportar la brecha sim a real.
+
+depth:
+  enabled: true
+  seed: 0                         # semilla base; el ruido de cada imagen depende de (seed, sello de tiempo)
+  max_rate_hz: 10.0               # 0 = procesar todas las imágenes (1280x720 en Python es costoso)
+
+  # Desviación axial: sigma(z) = sigma_const_m + sigma_quad_per_m * z^2
+  sigma_const_m: 0.0005
+  sigma_quad_per_m: 0.0016        # 1.6 mm a 1 m, 6.9 mm a 2 m
+  correlated_fraction: 0.5        # parte de la varianza que es espacialmente correlacionada
+  correlation_px: 8               # tamaño de la mancha correlacionada (ventana de correlación del sensor)
+
+  # Cuantización de disparidad (escalones de profundidad que crecen con z^2):
+  #   z = fx * B / d,  d cuantizada a 1/subpixel píxeles.
+  disparity_fx_px: 570.0          # focal NATIVA del sensor de profundidad (640x480), no la del render
+  baseline_m: 0.075               # proyector-cámara IR
+  subpixel: 8                     # 0 desactiva; escalón ~3 mm a 1 m, ~12 mm a 2 m
+  quantize_mm: true               # la Astra publica 16UC1 en milímetros
+
+  # Huecos (píxeles sin dato -> NaN).
+  dropout_prob: 0.002             # aleatorios
+  edge_threshold_m: 0.05          # salto de profundidad que se considera borde
+  edge_width_px: 2                # ancho del hueco en el lado lejano del borde (sombra del proyector)
+  edge_dropout_prob: 0.8
+  min_range_m: 0.6
+  max_range_m: 8.0

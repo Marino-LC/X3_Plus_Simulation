@@ -27,6 +27,7 @@ setup(
             'recon_pass = vla_pose_eval.nodes.recon_pass:main',
             'ground_truth_publisher = vla_pose_eval.nodes.ground_truth_publisher:main',
             'estimator_node = vla_pose_eval.nodes.estimator_node:main',
+            'depth_noise = vla_pose_eval.nodes.depth_noise:main',
         ],
     },
 )

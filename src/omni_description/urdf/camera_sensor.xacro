@@ -62,10 +62,13 @@
             <far>8.0</far>
           </clip>
         </depth_camera>
-         <noise>
+        <!-- Ruido de imagen RGB (intensidad normalizada 0-1; 0.007 ~ 1.8 niveles de
+             8 bits). El ruido de PROFUNDIDAD realista (crece con z^2, escalones,
+             huecos) lo añade el nodo depth_noise de vla_pose_eval. -->
+        <noise>
           <type>gaussian</type>
           <mean>0.0</mean>
-          <stddev>0.002</stddev>
+          <stddev>0.007</stddev>
         </noise>
       </camera>
     </sensor>

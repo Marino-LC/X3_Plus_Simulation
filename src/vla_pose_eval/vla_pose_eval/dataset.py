@@ -4,8 +4,9 @@
       scene.world              mundo SDF generado
       scene_gt.yaml            verdad de referencia de la escena
       views.yaml               por vista: pose real del robot, K, T_base_cam, archivos
-      views/view_000_rgb.png   (o .npy)        imagen RGB  (H, W, 3) uint8
-      views/view_000_depth.npy                 profundidad (H, W) float32, metros
+      views/view_000_rgb.png   (o .npy)        imagen RGB de la Astra  (H, W, 3) uint8
+      views/view_000_depth.npy                 profundidad de la Astra (H, W) float32, metros
+      views/view_000_mono.png  (o .npy)        imagen de la cámara del Dofbot (si se capturó)
       estimates_<estimador>.yaml               salida de un estimador
       errors_<estimador>.csv                   una fila por (vista, objeto) o falso positivo
       errors_fused_<estimador>.csv             lo mismo tras fusionar vistas
@@ -93,6 +94,12 @@ def load_rgb(path):
     except ImportError:
         from PIL import Image
         return np.asarray(Image.open(path).convert('RGB'))
+
+
+def load_mono_rgb(trial, view_meta):
+    """Imagen de la cámara del Dofbot de una vista; None si no hay."""
+    m = view_meta.get('mono') or {}
+    return load_rgb(os.path.join(trial, 'views', m['rgb'])) if m.get('rgb') else None
 
 
 def load_frame_arrays(trial, view_meta):

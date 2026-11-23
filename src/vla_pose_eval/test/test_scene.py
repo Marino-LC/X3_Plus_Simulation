@@ -39,7 +39,8 @@ def test_placement_constraints(cfg):
                     pl['min_pedestal_separation_m']
         for o in gt['objects']:
             ped = peds[o['pedestal_id']]
-            assert o['visible_from_views'], 'todo objeto debe quedar en cuadro en >= 1 vista'
+            # Todo objeto en cuadro en >= 1 vista de alguna cámara (visible_by).
+            assert o['visible_from_views'] or o['visible_from_views_mono']
             assert o['z'] > ped['height']               # centro geométrico sobre el pedestal
             assert abs(o['x'] - ped['x']) <= pl['max_object_offset_m'] + 1e-9
 

@@ -60,6 +60,13 @@
           <near>0.05</near>
           <far>8.0</far>
         </clip>
+        <!-- Ruido de imagen (intensidad normalizada 0-1). Cámara USB económica:
+             más ruidosa que la Astra. Ver vla_pose_eval/config/noise.yaml. -->
+        <noise>
+          <type>gaussian</type>
+          <mean>0.0</mean>
+          <stddev>0.012</stddev>
+        </noise>
       </camera>
     </sensor>
   </gazebo>

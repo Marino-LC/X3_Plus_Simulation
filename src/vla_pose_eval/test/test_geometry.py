@@ -56,14 +56,14 @@ def test_project_backproject():
 
 def test_optical_convention(cfg):
     """Un punto al frente-izquierda-abajo del robot: z>0, x<0 (izq.), y>0 (abajo)."""
-    cam = CameraModel.from_config(cfg['eval']['camera'])
+    cam = CameraModel.from_config(cfg['eval']['cameras']['rgbd'])
     p_cam = g.transform_point(g.inv_T(cam.T_base_cam), [1.0, 0.2, 0.2])
     assert p_cam[2] > 0 and p_cam[0] < 0 and p_cam[1] > 0
-    assert p_cam[2] == pytest.approx(1.0 - cfg['eval']['camera']['xyz_in_base'][0])
+    assert p_cam[2] == pytest.approx(1.0 - cfg['eval']['cameras']['rgbd']['xyz_in_base'][0])
 
 
 def test_visibility(cfg):
-    cam = CameraModel.from_config(cfg['eval']['camera'])
+    cam = CameraModel.from_config(cfg['eval']['cameras']['rgbd'])
     T = g.pose2d_to_T(0.0, 0.0, math.pi / 2)          # mirando a +Y
     assert is_visible([0.0, 1.2, 0.22], T, cam)[0]
     assert not is_visible([0.0, -1.2, 0.22], T, cam)[0]   # detrás

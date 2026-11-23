@@ -71,9 +71,15 @@ def _geometry(shape, size):
     raise ValueError('forma no soportada: %r' % shape)
 
 
+def shape_dims(shape, size):
+    """Dimensiones (x, y, z) de la caja envolvente del objeto, en su propio marco."""
+    size = [float(s) for s in size]
+    return {'box': lambda: size[:3], 'cylinder': lambda: [2 * size[0], 2 * size[0], size[1]],
+            'sphere': lambda: [2 * size[0]] * 3}[shape]()
+
+
 def shape_height(shape, size):
-    return {'box': lambda: size[2], 'cylinder': lambda: size[1],
-            'sphere': lambda: 2.0 * size[0]}[shape]()
+    return shape_dims(shape, size)[2]
 
 
 def _model(name, shape, size, pose, color, static=True, mass=0.05):
@@ -140,7 +146,8 @@ def generate_scene(scene_type, seed, cfg, split='auto'):
     region = scenes['arena']['spawn_region']
     ped_cfg = objs['pedestal']
     view_list = vw.load_views(cfg['views'])
-    cam = vw.CameraModel.from_config(ev['camera'])
+    cams = vw.nominal_cameras(ev)
+    visible_by = [c for c in pl.get('visible_by', ['rgbd']) if c in cams]
     targets = _variants(objs.get('objects'), split)
     distractors = _variants(objs.get('distractors'), split)
     if not targets or (st['distractors'] and not distractors):
@@ -197,16 +204,21 @@ def generate_scene(scene_type, seed, cfg, split='auto'):
                 'pedestal_id': pid,
                 'pedestal_height': ped['height'],
             })
-        cov = vw.coverage([[o['x'], o['y'], o['z']] for o in objects], view_list, cam)
-        if pl.get('require_visible', True) and any(not c for c in cov):
+        pts = [[o['x'], o['y'], o['z']] for o in objects]
+        cov = {n: vw.coverage(pts, view_list, c) for n, c in cams.items()}
+        if pl.get('require_visible', True) and any(
+                not any(cov[n][k] for n in visible_by) for k in range(len(objects))):
             continue
         break
     else:
         raise RuntimeError('no se pudo colocar la escena %s semilla %d: relajar '
                            'placement o revisar las vistas' % (scene_type, seed))
 
-    for o, c in zip(objects, cov):
-        o['visible_from_views'] = c
+    for k, o in enumerate(objects):
+        # Índices de las vistas donde el centro del objeto cae en cuadro, por cámara.
+        o['visible_from_views'] = cov['rgbd'][k]
+        if 'mono' in cov:
+            o['visible_from_views_mono'] = cov['mono'][k]
     pedestals = [{
         'id': i, 'name': 'pedestal_%02d' % i,
         'x': p['x'], 'y': p['y'], 'z': p['height'] / 2.0, 'yaw': p['yaw'],

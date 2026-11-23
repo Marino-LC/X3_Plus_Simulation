@@ -49,16 +49,19 @@ def cmd_generate(args, cfg):
 
 def cmd_check_views(args, cfg):
     view_list = vw.load_views(cfg['views'])
-    cam = vw.CameraModel.from_config(cfg['eval']['camera'])
-    print('%d vistas' % len(view_list))
+    cams = vw.nominal_cameras(cfg['eval'])
+    print('%d vistas; cámaras: %s' % (len(view_list), ', '.join(cams)))
     bad = 0
     for trial in dataset.find_trials_or_scenes(args.path):
         gt = dataset.load_gt(trial)
-        cov = vw.coverage([[o['x'], o['y'], o['z']] for o in gt['objects']], view_list, cam)
-        missing = [o['name'] for o, c in zip(gt['objects'], cov) if not c]
+        pts = [[o['x'], o['y'], o['z']] for o in gt['objects']]
+        cov = {n: vw.coverage(pts, view_list, c) for n, c in cams.items()}
+        seen = [[n for n in cams if cov[n][k]] for k in range(len(pts))]
+        missing = [o['name'] for o, s in zip(gt['objects'], seen) if not s]
         bad += bool(missing)
-        print('%s: %d/%d objetos en cuadro%s' % (
-            gt['scene_id'], len(cov) - len(missing), len(cov),
+        per_cam = ', '.join('%s %d' % (n, sum(bool(c) for c in cov[n])) for n in cams)
+        print('%s: %d/%d objetos en cuadro (%s)%s' % (
+            gt['scene_id'], len(pts) - len(missing), len(pts), per_cam,
             (' — SIN VISTA: ' + ', '.join(missing)) if missing else ''))
     return 1 if bad else 0
 
@@ -96,17 +99,26 @@ def cmd_report(args, cfg):
 
 
 def cmd_dry_run(args, cfg):
-    """Escenas + vistas sintéticas + oráculo con ruido -> CSV y reporte."""
+    """Escenas + vistas sintéticas + oráculos con ruido -> CSV y reporte.
+
+    Corre dos oráculos con el mismo ruido: solo la Astra (`oracle`) y la Astra
+    más la cámara del Dofbot (`oracle_multicam`), para comparar la fusión.
+    """
     kwargs = json.loads(args.kwargs) if args.kwargs else {
         'sigma_radial': 0.02, 'sigma_transversal': 0.008, 'sigma_z': 0.008,
         'sigma_yaw_deg': 5.0, 'drop_prob': 0.05, 'false_positives_per_view': 0.02,
-        'class_error_prob': 0.05}
-    est = load_estimator('oracle', **kwargs)
+        'class_error_prob': 0.10, 'sigma_box_px': 2.0}
+    mono_only = {'sigma_box_px', 'mono_drop_prob', 'mono_class_error_prob',
+                 'mono_false_positives_per_view', 'fusion'}
+    estimators = [load_estimator('oracle', **{k: v for k, v in kwargs.items()
+                                              if k not in mono_only}),
+                  load_estimator('oracle_multicam', **kwargs)]
     for trial in _generate(args, cfg):
         dataset.save_views_meta(trial, ev.synthetic_views_meta(dataset.load_gt(trial), cfg))
-        ev.run_estimator(trial, est, cfg)
-        ev.evaluate_trial_dir(trial, est.name, cfg)
-    _, md = rp.build_report(args.out, [est.name], cfg)
+        for est in estimators:
+            ev.run_estimator(trial, est, cfg)
+            ev.evaluate_trial_dir(trial, est.name, cfg)
+    _, md = rp.build_report(args.out, [e.name for e in estimators], cfg)
     print(md)
     print('\n[dry-run] SIN Gazebo: valida el flujo y las métricas, no un modelo.')
 
@@ -133,7 +145,8 @@ def main(argv=None):
     sp.set_defaults(fn=cmd_check_views)
     sp = sub.add_parser('run-estimator')
     sp.add_argument('path', help='un ensayo o el directorio raíz')
-    sp.add_argument('--estimator', required=True, help="'oracle', 'vla' o 'modulo:Clase'")
+    sp.add_argument('--estimator', required=True,
+                    help="'oracle', 'oracle_multicam', 'vla' o 'modulo:Clase'")
     sp.add_argument('--kwargs', help='JSON con los argumentos del estimador')
     sp.add_argument('--instruction', default='')
     sp.set_defaults(fn=cmd_run_estimator)

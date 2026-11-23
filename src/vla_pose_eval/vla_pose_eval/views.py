@@ -27,12 +27,37 @@ class CameraModel:
         pitch = math.radians(cam_cfg.get('pitch_down_deg', 0.0))
         cp, sp = math.cos(pitch), math.sin(pitch)
         R_pitch = np.array([[cp, 0.0, sp], [0.0, 1.0, 0.0], [-sp, 0.0, cp]])
-        T = g.make_T(R_pitch @ g.R_BODY_OPTICAL, cam_cfg['xyz_in_base'])
+        R_yaw = g.rot_z(math.radians(cam_cfg.get('yaw_deg', 0.0)))
+        T = g.make_T(R_yaw @ R_pitch @ g.R_BODY_OPTICAL, cam_cfg['xyz_in_base'])
         return cls(K=g.intrinsics_from_fov(w, h, float(cam_cfg['hfov'])),
                    width=w, height=h, T_base_cam=T,
                    depth_near=float(cam_cfg.get('depth_near', 0.0)),
                    depth_far=float(cam_cfg.get('depth_far', float('inf'))),
                    margin_px=float(cam_cfg.get('image_margin_px', 0.0)))
+
+
+    @classmethod
+    def from_meta(cls, meta, cam_cfg):
+        """Modelo real de una vista (K y extrínseca guardadas por recon_pass)."""
+        return cls(K=np.asarray(meta['K'], float).reshape(3, 3), width=int(meta['width']),
+                   height=int(meta['height']),
+                   T_base_cam=np.asarray(meta['T_base_cam'], float).reshape(4, 4),
+                   depth_near=float(cam_cfg.get('depth_near', 0.0)),
+                   depth_far=float(cam_cfg.get('depth_far', float('inf'))),
+                   margin_px=float(cam_cfg.get('image_margin_px', 0.0)))
+
+
+def nominal_cameras(eval_cfg):
+    """{nombre: CameraModel} de las cámaras declaradas en eval.yaml."""
+    return {n: CameraModel.from_config(c) for n, c in eval_cfg['cameras'].items()}
+
+
+def view_cameras(view_meta, eval_cfg):
+    """{nombre: CameraModel} de una vista de views.yaml (mono solo si se capturó)."""
+    cams = {'rgbd': CameraModel.from_meta(view_meta, eval_cfg['cameras']['rgbd'])}
+    if view_meta.get('mono') and 'mono' in eval_cfg['cameras']:
+        cams['mono'] = CameraModel.from_meta(view_meta['mono'], eval_cfg['cameras']['mono'])
+    return cams
 
 
 def load_views(views_cfg):
