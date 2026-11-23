@@ -226,6 +226,19 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+Si `ros2 launch` dice `executable '...py' not found on the libexec directory`,
+el script no tiene permiso de ejecución. Con `--symlink-install` el ejecutable
+instalado es un enlace al archivo fuente y conserva sus permisos. En el
+repositorio ya están marcados como ejecutables. Si su copia es anterior:
+
+```bash
+chmod +x src/omni_dofbot_mujoco/src/*.py src/omni_dofbot_mujoco/scripts/*.py src/omni_dofbot_bringup/src/*.py
+```
+
+`ros2 launch` corre los nodos con el `python3` que encuentre primero en el
+PATH. Si `mujoco` y `deap` están instalados solo en el venv, el venv tiene que
+estar activado en esa terminal.
+
 ## Ejecución rápida
 
 Todos los scripts se ejecutan desde `src/omni_dofbot_mujoco/scripts/` y aceptan
