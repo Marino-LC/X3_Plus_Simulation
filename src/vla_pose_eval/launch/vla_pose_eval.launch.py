@@ -133,4 +133,24 @@ def generate_launch_description():
              condition=IfCondition(LaunchConfiguration('rviz'))),
         after(spawn, wheels), after(wheels, arm), after(arm, gripper), after(gripper, jsb),
         after(jsb, activate_wheels),
+
+        Node(package='vla_pose_eval', executable='ground_truth_publisher', output='screen',
+             parameters=[{'trial_dir': trial_dir}]),
+        # OWLv2 sobre las dos cámaras (usa el Python del venv, ver paso 3)
+        Node(package='owlv2_detector', executable='owlv2_node', output='screen',
+             parameters=[{
+                 'image_topics': ['/camera/image', '/mono_camera/image_raw'],
+                 'queries': ['a red cube', 'a cylinder', 'a box'],
+                 'threshold': 0.2,
+                 'process_every_n': 3,
+                 'use_sim_time': True,
+             }]),
+        # Guarda las capturas anotadas de OWLv2 en <trial_dir>/views/
+        Node(package='owlv2_detector', executable='view_saver', output='screen',
+             parameters=[{
+                 'save_dir': PathJoinSubstitution([trial_dir, 'views']),
+                 'every_n': 3,
+                 'use_sim_time': True,
+             }]),
     ])
+
