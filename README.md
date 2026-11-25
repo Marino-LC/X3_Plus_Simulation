@@ -543,21 +543,72 @@ real.
 
 ### Observaciones sobre la lógica del AG (aplican también en Gazebo)
 
-No las cambié porque la lógica debía quedar igual, pero conviene revisarlas:
-
 1. **La detección de volcadura nunca se activa.** `_odom_cb` lee roll y pitch de
    `/odom`, pero `Mecanum_odometry_node.py` solo publica yaw, así que roll y
    pitch siempre valen 0. Para detectarla de verdad el AG tendría que leer
-   `/ground_truth/odom` (MuJoCo) o la pose de Gazebo.
-2. **El robot se mueve después del teletransporte.** El AG reinicia el PID y el
-   filtro del motor 0.8 s después de teletransportar. Mientras tanto el filtro
-   (τ = 0.58 s) sigue moviendo las ruedas con la velocidad del segmento
-   anterior, y el robot rueda unos 5 cm. No afecta al costo porque el origen se
-   fija después, pero cada prueba no arranca en (0, 0). Llamar a
-   `_reset_controller()` antes del teletransporte lo evitaría.
+   `/ground_truth/odom` (MuJoCo) o la pose de Gazebo. *Sin cambiar.*
+2. **El robot rodaba después del teletransporte.** *Corregido (CHANGELOG #10).*
+   El filtro del motor seguía moviendo las ruedas 0.8 s y el robot rodaba
+   37 mm de media (hasta 59 mm). Ahora `_teleport()` reinicia el controlador
+   antes, y el desplazamiento queda en ~1 mm.
 3. **`/odom` no ve el deslizamiento.** En P4 la curva de vy es idéntica a la de
    vx en P1, porque la odometría integra las ruedas. El deslizamiento lateral
-   real de los rodillos se mide con `/ground_truth/odom`.
+   real de los rodillos se mide con `/ground_truth/odom`. *Sin cambiar.*
+
+### Revisión de resultados: Kp ≈ 0 y salto del fitness al final (25 nov)
+
+Todo se midió con el AG real en paso fijo. Los scripts de medición no forman
+parte del repositorio.
+
+**El salto del fitness en la "última generación" no es un error de evolución.**
+La gráfica une las rondas una tras otra. Desde la ronda 2, si la primera
+generación no mejora 10 % la corrida se detiene, así que la última generación
+graficada es casi siempre la **generación 0 de una ronda nueva**: población
+aleatoria, `HallOfFame` vacío y la semilla reevaluada. En una corrida de
+prueba el mínimo pasó de 8.394 a 8.527 y la media de 8.617 a 8.639 justo ahí.
+El resultado final (`MEJOR INDIVIDUO`) es el mejor global y no se pierde. La
+gráfica ahora marca con una línea discontinua el inicio de cada ronda.
+
+**Por qué Kp termina en ≈ 0 y la velocidad oscila:**
+
+- **El costo no castiga la oscilación de velocidad.** Con Ki = 0.495 y Kd = 0.899,
+  subir Kp de 0 a 5 reduce la oscilación de vx de 0.083 a 0.002 m/s RMS, pero
+  el fitness solo cambia ~4 % (8.43–8.83).
+- **Casi todo el costo de P1 y P4 es fijo.** El ITAE mide la distancia a la
+  **meta final**. Aun con seguimiento perfecto a 0.4 m/s vale ~1.07, es decir
+  unos 12.8 de los ~14.5 puntos de P1. La parte que depende del PID premia
+  llegar antes, así que un sobreimpulso de velocidad lo abarata.
+- **Con Ki bajo gana Kp = 0.** Con Ki = 0.06 el orden se invierte: Kp = 0 da
+  10.11, Kp = 0.8 da 10.32 y Kp = 3 da 10.85. Si el AG cae en esa zona, lleva
+  Kp a cero.
+- **La medición tiene ruido del mismo tamaño que el efecto de Kp.** Las mismas
+  ganancias dan entre 8.40 y 8.67 (±1.5 %) según el desfase entre los relojes
+  de 100 Hz y la comprobación de llegada cada `CTRL_DT = 50 ms` (2 cm a
+  0.4 m/s). Entre Kp = 1 y Kp = 3.5 la diferencia es ~0.1, menor que ese ruido.
+  Como los élites del `HallOfFame` no se reevalúan, el AG conserva individuos
+  con evaluaciones "con suerte". En ROS real el ruido es mayor.
+- **No influyen:** la banda muerta de error del nodo cinemático (0 o 2 mm/s dan
+  lo mismo) ni el individuo evaluado antes.
+
+**Opción nueva: `W_VEL` (CHANGELOG #10, apagada por defecto).** Cada prueba suma
+`W_VEL · RMS(v_real − v_ref) / REF`, con REF = 0.04 m/s en P1, P3 y P4 y
+0.10 rad/s en P2. Con `W_VEL = 0.0` el costo es idéntico al original. Con
+`W_VEL = 0.3`:
+
+| | mejor Kp con Ki = 0.495 | mejor Kp con Ki = 0.06 |
+|---|---|---|
+| costo original | 2.0 | 0.0 |
+| `W_VEL = 0.3` | 3.5 | 0.8 |
+
+Kp = 0 deja de ser competitivo. En MuJoCo:
+
+```bash
+python3 run_ag_mujoco.py --w-vel 0.3 --seed 1 --out resultados_ag_wvel
+```
+
+En Gazebo o con ROS real se cambia la constante `W_VEL` en `ag_motion_tests.py`.
+Activarla cambia la escala del fitness, así que no se pueden comparar fitness
+entre corridas con y sin `W_VEL`. Es una decisión de diseño de la tesis.
 
 ### Con ROS 2 real (puente probado, AG aún no)
 

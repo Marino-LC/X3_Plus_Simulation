@@ -262,6 +262,15 @@ omni_dofbot_bringup/
 
 ## 8. Limitaciones conocidas
 
+- La gráfica de fitness une las rondas; la 1a generación de cada ronda nueva
+  sube de forma natural (población nueva). La línea discontinua marca el inicio
+  de cada ronda.
+- El costo no incluye el seguimiento de velocidad: oscilar casi no cuesta y Kp
+  apenas influye. La constante `W_VEL` (0.0 por defecto = costo original) añade
+  ese término; ver el README de la raíz, «Revisión de resultados».
+- Las mismas ganancias dan ±1.5 % de fitness según el desfase de relojes, y los
+  élites no se reevalúan.
+
 - El PID incremental no normaliza por dt, igual que el firmware. Por eso depende de que la
   simulación corra cerca del tiempo real; el filtro de RTF existe para descartar las evaluaciones
   que no cumplan.

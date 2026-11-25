@@ -41,6 +41,9 @@ if __name__ == "__main__":
     ap.add_argument("--gen", type=int, help="sobrescribe N_GEN")
     ap.add_argument("--max-rounds", type=int, help="sobrescribe MAX_ROUNDS")
     ap.add_argument("--seed", type=int, help="semilla de random (corrida reproducible)")
+    ap.add_argument("--w-vel", type=float,
+                    help="sobrescribe W_VEL del AG: peso del seguimiento de velocidad "
+                         "(0 = costo original; ver CHANGELOG #10)")
     ap.add_argument("--out", default="resultados_ag_mujoco", help="carpeta de salida")
     ap.add_argument("--model", help="MJCF (por defecto models/omni_dofbot_arena.xml)")
     ap.add_argument("--bringup-dir", help="carpeta con ag_motion_tests.py y los nodos")
@@ -55,6 +58,7 @@ if __name__ == "__main__":
         w = LockstepWorld(model_path=a.model, bringup_dir=a.bringup_dir,
                           verbose=a.verbose, viewer=a.viewer, realtime=a.realtime,
                           log_file=log)
+        w.configure(W_VEL=a.w_vel)
         t0 = time.perf_counter()
         try:
             if a.battery:

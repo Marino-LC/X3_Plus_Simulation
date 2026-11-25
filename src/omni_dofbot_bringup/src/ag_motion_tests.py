@@ -104,6 +104,16 @@ CHANGELOG respecto a la versión anterior (documentado para la tesis)
    MIN_IMPROVEMENT_GEN1 (10 %), la prueba termina y se conserva el mejor
    controlador global; si mejoró, la ronda se completa y se repite el ciclo.
    MAX_ROUNDS es solo un tope de seguridad.
+
+10. REVISIÓN DE RESULTADOS (Kp ≈ 0 y salto del fitness al final):
+   a) La "última generación" con fitness más alto es la 1a generación de la
+      ronda siguiente (población nueva, HallOfFame nuevo, semilla reevaluada
+      con ruido). Ahora la gráfica marca el inicio de cada ronda.
+   b) _teleport() reinicia el PID y el filtro del motor ANTES de teletransportar
+      (antes el robot seguía rodando 4-6 cm tras el teleport).
+   c) Término opcional W_VEL de seguimiento de velocidad (0.0 = costo original).
+      El costo original no castiga la oscilación de velocidad, por eso Kp
+      apenas influye en el fitness.
 """
 
 import math, time, threading, subprocess, random, json, os, webbrowser
@@ -199,6 +209,17 @@ MAX_CONSECUTIVE_DISCARDS = 10                # descartes seguidos en un mismo hu
 
 W1, W2, W3, W4  = 0.25, 0.20, 0.30, 0.25     # pesos P1 (recta), P2 (giro), P3 (combinada), P4 (lateral)
 PENALTY_TO  = 50.0
+
+# CHANGELOG #10 — término opcional de seguimiento de velocidad. El costo original
+# mide posición contra la meta y tiempo, pero no la forma de la velocidad: una
+# velocidad oscilante casi no cuesta (o incluso baja el ITAE porque llega antes),
+# así que el AG no distingue Kp, que es la ganancia que amortigua.
+# Con W_VEL > 0 cada prueba suma W_VEL·RMS(v_real − v_ref)/REF, con el RMS
+# calculado sobre todos los segmentos medidos de la prueba.
+# W_VEL = 0.0 deja el costo IDÉNTICO al original.
+W_VEL        = 0.0
+VEL_RMS_REF  = 0.04   # m/s   (10 % de VX_REF) — P1, P3, P4
+WZ_RMS_REF   = 0.10   # rad/s (10 % de WZ_REF) — P2
 
 # ── Brazo Dofbot — coreografía determinista ───────────────────────────────────
 ARM_JOINTS = ["arm_joint_01","arm_joint_02","arm_joint_03",
@@ -385,6 +406,8 @@ class AGMotionEvaluator(Node):
         self._last_odom_t  = 0.0
 
         self._itae_target  = Pose2D()
+        self._verr = [0.0, 0.0, 0.0]   # ∫|Δv|²dt, ∫Δwz²dt, ∫dt del segmento (CHANGELOG #10)
+        self._seg_vrms = []            # (rms_lin, rms_ang) por segmento de la prueba
         self._yaw_ref_live = 0.0
         self._measuring    = False
         self._seg_log: SegmentLog = None
@@ -474,6 +497,12 @@ class AGMotionEvaluator(Node):
                 t_real = now - self._start_eval_t
                 self._itae_accum += t_real * err * dt
 
+                # CHANGELOG #10 — error de seguimiento de velocidad
+                vrx, vry, vrw = self._current_vref
+                self._verr[0] += ((vx - vrx) ** 2 + (vy - vry) ** 2) * dt
+                self._verr[1] += (wz - vrw) ** 2 * dt
+                self._verr[2] += dt
+
                 x_ref   = self._itae_target.x
                 y_ref   = self._itae_target.y
                 yaw_ref = self._yaw_ref_live
@@ -545,6 +574,7 @@ class AGMotionEvaluator(Node):
             self._last_odom_t  = self._now()
 
             self._measuring    = True
+            self._verr         = [0.0, 0.0, 0.0]
             self._seg_log      = seg_log
             self._yaw_ref_live = target.yaw
 
@@ -552,7 +582,22 @@ class AGMotionEvaluator(Node):
         with self._lock:
             self._measuring = False
             self._seg_log   = None
+            T = self._verr[2]
+            self._seg_vrms.append((math.sqrt(self._verr[0] / T), math.sqrt(self._verr[1] / T))
+                                  if T > 0 else (0.0, 0.0))
             return self._itae_accum
+
+    def _seg_vrms_lin(self) -> float:
+        v = [r[0] for r in self._seg_vrms]
+        return sum(v) / len(v) if v else 0.0
+
+    def _vel_cost(self, angular=False) -> float:
+        """CHANGELOG #10 — W_VEL·RMS medio de los segmentos de la prueba / REF."""
+        if W_VEL <= 0.0 or not self._seg_vrms:
+            return 0.0
+        k = 1 if angular else 0
+        rms = sum(v[k] for v in self._seg_vrms) / len(self._seg_vrms)
+        return W_VEL * rms / (WZ_RMS_REF if angular else VEL_RMS_REF)
 
     # ── Reset de odometría ────────────────────────────────────────────────────
     def _reset_odometry(self):
@@ -672,7 +717,13 @@ class AGMotionEvaluator(Node):
     # ── Teleport ──────────────────────────────────────────────────────────────
     def _teleport(self):
         self._stop()
+        # CHANGELOG #10 — frenar la planta del motor ANTES de teletransportar. Sin
+        # esto, el filtro de primer orden (tau≈0.58 s) seguía moviendo las ruedas
+        # con la velocidad del último segmento y el robot rodaba 4-6 cm desde el
+        # punto de teleport antes de fijar el origen de la siguiente prueba.
+        self._reset_controller()
         self._sleep(0.15)
+        self._seg_vrms = []
         done = False
         if self._tp_cli.wait_for_service(timeout_sec=2.0):
             req = SetEntityPose.Request()
@@ -858,11 +909,12 @@ class AGMotionEvaluator(Node):
         ITAE_REF = 0.05
         TIME_REF = 2 * DIST_X / VX_REF
         cost = (0.60*(i1+i2)/ITAE_REF + 0.30*(t1+t2)/TIME_REF
-              + 0.10*err_f/POS_TOL)
+              + 0.10*err_f/POS_TOL) + self._vel_cost()
         if not ok1 or not ok2: cost += PENALTY_TO
 
         self.get_logger().info(
-            f"   ITAE={i1+i2:.4f} t={t1+t2:.1f}s err_f={err_f:.3f}m cost={cost:.4f}")
+            f"   ITAE={i1+i2:.4f} t={t1+t2:.1f}s err_f={err_f:.3f}m "
+            f"v_rms={self._seg_vrms_lin():.3f}m/s cost={cost:.4f}")
         return cost, ([s1, s2] if record else [])
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -895,7 +947,7 @@ class AGMotionEvaluator(Node):
         TIME_REF = 2 * ROT_ANGLE / WZ_REF
 
         cost = (0.55*(err1+err2)/(2*YAW_TOL) + 0.25*(t1+t2)/TIME_REF
-              + 0.20*err_f/POS_TOL)
+              + 0.20*err_f/POS_TOL) + self._vel_cost(angular=True)
         if not ok1 or not ok2: cost += PENALTY_TO
 
         self.get_logger().info(
@@ -931,7 +983,7 @@ class AGMotionEvaluator(Node):
         TIME_REF = (DIST_X/VX_REF) + (ROT_ANGLE/WZ_REF) + (DIST_RETURN/VX_REF)
 
         cost = (0.45*(i1+i2)/ITAE_REF + 0.20*(t1+t2)/TIME_REF
-              + 0.15*err_yaw/YAW_TOL + 0.20*err_f/POS_TOL)
+              + 0.15*err_yaw/YAW_TOL + 0.20*err_f/POS_TOL) + self._vel_cost()
         if not ok1 or not ok2 or not ok_rot: cost += PENALTY_TO
 
         self.get_logger().info(
@@ -966,11 +1018,12 @@ class AGMotionEvaluator(Node):
         ITAE_REF = 0.05
         TIME_REF = 2 * DIST_Y / VY_REF
         cost = (0.60*(i1+i2)/ITAE_REF + 0.30*(t1+t2)/TIME_REF
-              + 0.10*err_f/POS_TOL)
+              + 0.10*err_f/POS_TOL) + self._vel_cost()
         if not ok1 or not ok2: cost += PENALTY_TO
 
         self.get_logger().info(
-            f"   ITAE={i1+i2:.4f} t={t1+t2:.1f}s err_f={err_f:.3f}m cost={cost:.4f}")
+            f"   ITAE={i1+i2:.4f} t={t1+t2:.1f}s err_f={err_f:.3f}m "
+            f"v_rms={self._seg_vrms_lin():.3f}m/s cost={cost:.4f}")
         return cost, ([s1, s2] if record else [])
 
     # ── Reintentos si la metrica es invalida ──────────────────────────────────
@@ -1095,6 +1148,14 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3, segs4,
         ax1.fill_between(gens, min_fit, max_fit, alpha=0.12, color="blue")
         ax1.set_title("Evolución del fitness"); ax1.set_xlabel("Generación (acumulada entre rondas)")
         ax1.set_ylabel("Fitness"); ax1.legend(fontsize=8); ax1.grid(True, alpha=0.3)
+        # CHANGELOG #10 — cada ronda empieza con población nueva y su propio
+        # HallOfFame: su 1a generación sube de forma natural. Se marca el inicio.
+        round_starts = [g.gen for i, g in enumerate(gen_logs)
+                        if i > 0 and g.round != gen_logs[i - 1].round]
+        for gx in round_starts:
+            ax1.axvline(gx - 0.5, color="gray", ls="--", lw=1)
+            ax1.text(gx - 0.45, ax1.get_ylim()[1], " nueva ronda", fontsize=7,
+                     va="top", color="gray")
 
         ax2 = fig.add_subplot(gs[0, 1])
         ax2.plot(gens, best_kps, "r-o", ms=5, lw=1.8, label="Kp")
@@ -1103,6 +1164,8 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3, segs4,
         ax2.set_title("Ganancias del mejor por generación")
         ax2.set_xlabel("Generación"); ax2.set_ylabel("Ganancia")
         ax2.legend(fontsize=8); ax2.grid(True, alpha=0.3)
+        for gx in round_starts:
+            ax2.axvline(gx - 0.5, color="gray", ls="--", lw=1)
 
         ax3 = fig.add_subplot(gs[1, 0])
         ax3_has_data = False
@@ -1236,6 +1299,11 @@ def _build_plots(gen_logs, all_inds, segs1, segs2, segs3, segs4,
                       mode="lines+markers", line=dict(color="green")), row=1, col=2)
         fig.add_trace(go.Scatter(x=gens, y=best_kds, name="Kd",
                       mode="lines+markers", line=dict(color="blue")),  row=1, col=2)
+        for i, g in enumerate(gen_logs):           # CHANGELOG #10 — inicio de ronda
+            if i > 0 and g.round != gen_logs[i - 1].round:
+                for c in (1, 2):
+                    fig.add_vline(x=g.gen - 0.5, line_dash="dash", line_color="gray",
+                                  row=1, col=c)
 
         COLORS = ["#e41a1c","#377eb8","#4daf4a","#984ea3","#ff7f00"]
         for ci, seg in enumerate(segs1 or []):
@@ -1606,6 +1674,7 @@ def main(args=None):
                 "min_improvement_gen1": MIN_IMPROVEMENT_GEN1,
                 "max_rounds": MAX_ROUNDS,
                 "rtf_min": RTF_MIN, "rtf_max_retries": RTF_MAX_RETRIES,
+                "w_vel": W_VEL, "vel_rms_ref": VEL_RMS_REF, "wz_rms_ref": WZ_RMS_REF,
             },
             "best": {"kp": best_kp, "ki": best_ki, "kd": best_kd,
                      "fitness": best.fitness.values[0]},
