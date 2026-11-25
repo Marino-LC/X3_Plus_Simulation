@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='arrusr',
     maintainer_email='arrg.unam@gmail.com',
-    description='TODO: Package description',
+    description='Detector OWLv2 para las dos cámaras (estimador de vla_pose_eval y nodo en vivo).',
     license='TODO: License declaration',
     extras_require={
         'test': [

@@ -10,6 +10,13 @@ from sensor_msgs.msg import Image
 
 
 class ViewSaver(Node):
+    """Guarda las imágenes anotadas del nodo OWLv2 EN VIVO (cada `every_n`).
+
+    No sigue la pasada de reconocimiento: guarda desde que arranca la
+    simulación. Las imágenes anotadas por vista las escribe el estimador en
+    <ensayo>/views/owlv2/.
+    """
+
     def __init__(self):
         super().__init__("owlv2_view_saver")
 

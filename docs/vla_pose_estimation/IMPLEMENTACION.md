@@ -11,7 +11,7 @@ Este documento dice **qué quedó listo en el repositorio**, **cómo usarlo** y 
 | Cámara del Dofbot en la identificación (sección 3) | Implementado y probado en el núcleo; captura en Gazebo sin ejecutar |
 | Ruido de cámaras (sección 4) | Modelo de profundidad probado; SDF y nodo ROS sin ejecutar |
 | Nodos ROS 2, launch y xacro | Escritos y revisados con un analizador estático, **no ejecutados**: el entorno donde se prepararon no tiene ROS ni Gazebo. Ver la lista de verificación de la sección 9 |
-| Línea base clásica (E1) | Hecha la geometría (caja 2D + profundidad → 3D) y la fusión con la cámara del Dofbot. **Falta conectar el detector** |
+| Línea base clásica (E1) | Estimador OWLv2 (`owlv2_detector`) con las dos cámaras, consultas por clase y negativas, mosaicos y filtro de tamaño. Lógica probada con un modelo simulado (7 pruebas); **falta probarlo con el modelo real** y ajustar las consultas |
 | Modelo aprendido (E2) | Solo la plantilla `VLAEstimator` |
 | Objetos de la escena | Primitivas de ejemplo. **Falta sustituirlas por los objetos del RS3** |
 
@@ -47,6 +47,21 @@ Todas las estimaciones se expresan en el marco óptico de la Astra, así que el 
 - Un estimador declara `cameras = ('rgbd', 'mono')` para que el evaluador cuente la visibilidad de ambas.
 - `Detection.source` dice qué cámaras produjeron cada estimación.
 - `MultiCameraDetectorEstimator` es la línea base con las dos cámaras: se implementa `detect` una vez y se aplica a ambas imágenes. Para usar otro detector en la cámara del Dofbot, se sobrescribe `detect_mono`.
+
+### 2.3 Detector OWLv2 (línea base E1)
+
+Ver [`src/owlv2_detector/README.md`](../../src/owlv2_detector/README.md). Lo importante:
+
+- **Detecta por vista, no en continuo.** El estimador `owlv2` corre sobre las capturas de `recon_pass`, una por vista tras cada teletransporte. Puede correr fuera de línea con `run-estimator` o en línea con `estimator_node`. El nodo `owlv2_node` + `view_saver` procesa el video desde que arranca la simulación y solo sirve para mirar. Va desactivado por defecto (`owlv2_live:=true` para activarlo) y guarda en `views/owlv2_live/`, aparte de las capturas por vista.
+- **Consultas por clase y negativas** en `objects.yaml`, con los nombres de clase del evaluador. Las consultas originales (`"a red cube"`, `"a cylinder"`, `"a box"`) tenían tres problemas:
+  - el pedestal, una caja grande, ganaba "cube" o "box";
+  - "red" excluía los cubos de otros colores del conjunto de prueba;
+  - las etiquetas no coincidían con las clases del evaluador.
+- **Filtro por tamaño métrico** en la Astra: con la profundidad, una caja de 0.15 m (pedestal) no puede ser un objeto de ≤ 0.07 m.
+- **Mosaicos** en la Astra: dos de 720 × 720. Sin ellos, OWLv2 reduce la imagen de 1280 × 720 a 0.75 y un cubo a 1.5 m ocupa ~22 px. Umbral 0.10 en vez de 0.2, porque los objetos pequeños dan puntajes bajos.
+- Imágenes anotadas por vista en `<ensayo>/views/owlv2/`.
+
+Las consultas son una propuesta inicial: no pude probar el modelo real desde el entorno donde se preparó el cambio. Ajústenlas con las imágenes anotadas.
 
 ## 3. Ruido de cámaras
 
@@ -171,7 +186,13 @@ ros2 run vla_pose_eval vla_pose_eval evaluate ~/vla_runs/test --estimators oracl
 ros2 run vla_pose_eval vla_pose_eval report ~/vla_runs/test --estimators oracle_multicam
 ```
 
-Para comparar estimadores (por ejemplo, la línea base con una y con dos cámaras, o el modelo aprendido), se corre `run-estimator` una vez por estimador sobre los mismos ensayos y se pasan todos los nombres a `evaluate` y `report`. Todos leen las mismas imágenes de `views/`.
+Para comparar estimadores (por ejemplo, OWLv2 con una y con dos cámaras, o el modelo aprendido), se corre `run-estimator` una vez por estimador sobre los mismos ensayos y se pasan todos los nombres a `evaluate` y `report`. Todos leen las mismas imágenes de `views/`. El script `vla_pose_eval/scripts/run_vla_eval.py` hace los tres pasos en orden:
+
+```bash
+python3 src/vla_pose_eval/vla_pose_eval/scripts/run_vla_eval.py --run-dir ~/vla_runs/test --estimators oracle_multicam owlv2 owlv2_rgbd
+```
+
+`evaluate` debe terminar antes de `report`, porque `report` lee los CSV que escribe `evaluate`.
 
 **No ejecutar `Mecanum_odometry_node.py` ni Nav2 en esta fase.** `ground_truth_publisher` publica `map → base_footprint` con la pose de Gazebo; la odometría publicaría `odom → base_footprint` y el marco tendría dos padres.
 
@@ -254,10 +275,11 @@ Verificar en simulación, en este orden:
 
 ### E1. Línea base clásica
 
-- [ ] Elegir detector (Grounding DINO, OWLv2 o YOLO-World) tras revisar licencia y velocidad en la Jetson.
-- [ ] Implementar `detect` en una subclase de `MultiCameraDetectorEstimator` (o de `DetectorDepthEstimator` para la variante solo Astra).
-- [ ] Fijar `center_offsets` por clase: la profundidad mide la superficie visible y la referencia es el centro, lo que deja un sesgo radial de medio objeto (1 a 3 cm) si no se corrige.
-- [ ] Comparar una y dos cámaras con `report --estimators baseline baseline_multicam`.
+- [ ] Correr `run-estimator --estimator owlv2` sobre un ensayo y revisar `views/owlv2/`: cada objeto en verde, los pedestales en gris o en rojo.
+- [ ] Ajustar las consultas y `class_thresholds` en `objects.yaml` según esas imágenes.
+- [ ] Revisar licencia y velocidad de OWLv2 en la Jetson (Fase 2).
+- [ ] `center_offsets` por clase: por defecto, la mitad de la menor dimensión horizontal del objeto (la profundidad mide la cara visible y la referencia es el centro).
+- [ ] Comparar una y dos cámaras con `report --estimators owlv2_rgbd owlv2`.
 - [ ] Criterio: mediana ≤ 0.05 m en S1.
 
 ### E2. Modelo aprendido

@@ -12,6 +12,8 @@ mismo sello y el marco óptico de la Astra.
 * Si el estimador no da orientación, el cuaternión va en cero (recon_pass lo
   interpreta como «sin orientación»).
 * En /vla/estimates/info (latched, JSON) anuncia su nombre y sus cámaras.
+* Si el estimador da imágenes anotadas (p. ej. owlv2), las publica en
+  /vla/debug/<cámara>/image, UNA por vista de la pasada (para RViz).
 
   ros2 run vla_pose_eval estimator_node --ros-args \
       -p estimator:=mi_paquete.mi_modulo:MiLineaBase -p estimator_kwargs:='{}'
@@ -77,6 +79,7 @@ class EstimatorNode(Node):
         info_pub = self.create_publisher(String, t['estimates'] + '/info', latched)
         info_pub.publish(String(data=json.dumps(
             {'name': self.estimator.name, 'cameras': list(self.estimator.cameras)})))
+        self._debug_pubs = {}
 
     def _on_instruction(self, msg):
         self.instruction = msg.data
@@ -126,6 +129,12 @@ class EstimatorNode(Node):
             det.results.append(hyp)
             out.detections.append(det)
         self._pub.publish(out)
+        for cam, img in (getattr(self.estimator, 'debug_images', None) or {}).items():
+            if img is None:
+                continue
+            if cam not in self._debug_pubs:
+                self._debug_pubs[cam] = self.create_publisher(Image, '/vla/debug/%s/image' % cam, 1)
+            self._debug_pubs[cam].publish(ru.rgb_to_image(img, out.header))
 
 
 def main():

@@ -118,6 +118,8 @@ def generate_launch_description():
         DeclareLaunchArgument('x', default_value='0.0'),
         DeclareLaunchArgument('y', default_value='0.0'),
         DeclareLaunchArgument('rviz', default_value='true', description='Lanzar RViz2 junto a la simulación'),
+        DeclareLaunchArgument('owlv2_live', default_value='false',
+                              description='OWLv2 continuo sobre las cámaras (solo para RViz)'),
         DeclareLaunchArgument('depth_noise', default_value='true',
                               description='Ruido realista de profundidad de la Astra (noise.yaml)'),
         DeclareLaunchArgument('gz_extra_args', default_value='',
@@ -134,21 +136,22 @@ def generate_launch_description():
         after(spawn, wheels), after(wheels, arm), after(arm, gripper), after(gripper, jsb),
         after(jsb, activate_wheels),
 
-        Node(package='vla_pose_eval', executable='ground_truth_publisher', output='screen',
-             parameters=[{'trial_dir': trial_dir}]),
-        # OWLv2 sobre las dos cámaras (usa el Python del venv, ver paso 3)
+        # OWLv2 EN VIVO, solo para mirar en RViz (owlv2_live:=true). Procesa el
+        # video continuo desde que arranca la simulación, no las vistas de la
+        # pasada; las detecciones por vista las hace el estimador `owlv2`
+        # (run-estimator o estimator_node). Comparte GPU con Gazebo.
         Node(package='owlv2_detector', executable='owlv2_node', output='screen',
+             condition=IfCondition(LaunchConfiguration('owlv2_live')),
              parameters=[{
                  'image_topics': ['/camera/image', '/mono_camera/image_raw'],
-                 'queries': ['a red cube', 'a cylinder', 'a box'],
-                 'threshold': 0.2,
                  'process_every_n': 3,
                  'use_sim_time': True,
              }]),
-        # Guarda las capturas anotadas de OWLv2 en <trial_dir>/views/
+        # Sus imágenes van a views/owlv2_live/, separadas de las capturas por vista.
         Node(package='owlv2_detector', executable='view_saver', output='screen',
+             condition=IfCondition(LaunchConfiguration('owlv2_live')),
              parameters=[{
-                 'save_dir': PathJoinSubstitution([trial_dir, 'views']),
+                 'save_dir': PathJoinSubstitution([trial_dir, 'views', 'owlv2_live']),
                  'every_n': 3,
                  'use_sim_time': True,
              }]),

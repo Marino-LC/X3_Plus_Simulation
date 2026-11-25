@@ -73,6 +73,9 @@ class Estimator:
 
     name = 'base'
     cameras = ('rgbd',)      # cámaras que usa: ('rgbd',) o ('rgbd', 'mono')
+    # Opcional: tras cada `estimate`, {cámara: imagen RGB anotada}. run_estimator
+    # las guarda en <ensayo>/views/<estimador>/ y estimator_node las publica.
+    debug_images = None
 
     def estimate(self, frame: Frame) -> List[Detection]:
         raise NotImplementedError
@@ -86,13 +89,15 @@ def load_estimator(spec, **kwargs):
     aliases = {
         'oracle': 'vla_pose_eval.estimators.oracle:OracleEstimator',
         'vla': 'vla_pose_eval.estimators.vla:VLAEstimator',
+        'owlv2': 'owlv2_detector.estimator:Owlv2Estimator',
     }
-    if spec == 'oracle_multicam':
-        spec = aliases['oracle']
-        kwargs = dict({'use_mono': True}, **kwargs)
+    if spec in ('oracle_multicam', 'owlv2_rgbd'):
+        kwargs = dict({'use_mono': spec == 'oracle_multicam'}, **kwargs)
+        spec = aliases['oracle' if spec == 'oracle_multicam' else 'owlv2']
     spec = aliases.get(spec, spec)
     if ':' not in spec:
-        raise ValueError("estimador %r: usar un alias (oracle, oracle_multicam, vla) "
+        raise ValueError("estimador %r: usar un alias (oracle, oracle_multicam, owlv2, "
+                         "owlv2_rgbd, vla) "
                          "o 'modulo:Clase'" % spec)
     module, cls = spec.split(':', 1)
     return getattr(importlib.import_module(module), cls)(**kwargs)

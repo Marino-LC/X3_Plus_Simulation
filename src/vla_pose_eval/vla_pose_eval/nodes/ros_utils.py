@@ -14,6 +14,20 @@ def image_to_rgb(msg):
     return (a[:, :, ::-1] if msg.encoding == 'bgr8' else a).copy()
 
 
+def rgb_to_image(rgb, header):
+    """(H, W, 3) uint8 RGB -> sensor_msgs/Image rgb8, sin cv_bridge."""
+    from sensor_msgs.msg import Image
+    a = np.ascontiguousarray(rgb, dtype=np.uint8)
+    m = Image()
+    m.header = header
+    m.height, m.width = a.shape[:2]
+    m.encoding = 'rgb8'
+    m.is_bigendian = 0
+    m.step = m.width * 3
+    m.data = a.tobytes()
+    return m
+
+
 def image_to_depth(msg):
     """sensor_msgs/Image (32FC1 en m, o 16UC1 en mm) -> (H, W) float32 en metros."""
     if msg.encoding == '32FC1':

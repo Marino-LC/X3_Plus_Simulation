@@ -3,7 +3,7 @@
 <package format="3">
   <name>owlv2_detector</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Detector OWLv2 (vocabulario abierto) para las dos cámaras: estimador para vla_pose_eval y nodo en vivo para RViz.</description>
   <maintainer email="arrg.unam@gmail.com">arrusr</maintainer>
   <license>TODO: License declaration</license>
 
@@ -11,7 +11,8 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <depend>cv_bridge</depend>
-  <exec_depend>owlv2_detector</exec_depend>
+  <exec_depend>vla_pose_eval</exec_depend>
+  <!-- torch, transformers y pillow se instalan en el venv (pip), no con rosdep. -->
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

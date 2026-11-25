@@ -34,7 +34,8 @@ class Box2D:
 class DetectorDepthEstimator(Estimator):
     name = 'baseline'
 
-    def __init__(self, shrink=0.5, front_band_m=0.05, min_pixels=5, center_offsets=None):
+    def __init__(self, shrink=0.5, front_band_m=0.05, min_pixels=5, center_offsets=None,
+                 max_object_size_m=None):
         """
         shrink: fracción central de la caja usada para leer profundidad (evita
             bordes donde se cuela el fondo).
@@ -44,11 +45,16 @@ class DetectorDepthEstimator(Estimator):
             profundidad mide la SUPERFICIE visible, pero la pose de referencia
             es el CENTRO geométrico; sin esta corrección queda un sesgo radial
             de medio objeto (~1-3 cm). Ver objects.yaml para los tamaños.
+        max_object_size_m: con la profundidad se conoce el tamaño métrico de la
+            caja; si su ancho o alto supera este valor, no es un objeto (p. ej.
+            un pedestal de 0.15 m detectado como cubo) y se descarta.
         """
         self.shrink = float(shrink)
         self.front_band = float(front_band_m)
         self.min_pixels = int(min_pixels)
         self.center_offsets = dict(center_offsets or {})
+        self.max_object_size_m = None if max_object_size_m is None else float(max_object_size_m)
+        self.rejected = []           # cajas descartadas en la última imagen: [(caja, motivo)]
 
     # -- A implementar por el equipo ------------------------------------------
     def detect(self, rgb, instruction) -> List[Box2D]:
@@ -76,9 +82,16 @@ class DetectorDepthEstimator(Estimator):
             region = depth[r0:r1, c0:c1]
         vals = region[np.isfinite(region) & (region > 0.0)]
         if vals.size < self.min_pixels:
+            self.rejected.append((box, 'sin profundidad'))
             return None                  # sin profundidad (p. ej. más cerca que depth_near)
         z = float(np.median(vals[vals <= vals.min() + self.front_band]))
-        p = g.backproject(np.asarray(K, float), u_c, v_c, z)
+        K = np.asarray(K, float)
+        if self.max_object_size_m is not None:
+            size = max((x1 - x0) * z / K[0, 0], (y1 - y0) * z / K[1, 1])
+            if size > self.max_object_size_m:
+                self.rejected.append((box, 'tamaño %.2f m' % size))
+                return None
+        p = g.backproject(K, u_c, v_c, z)
         offset = float(self.center_offsets.get(box.cls, 0.0))
         return p * (1.0 + offset / np.linalg.norm(p))
 
@@ -86,6 +99,7 @@ class DetectorDepthEstimator(Estimator):
         if frame.rgb is None or frame.depth is None:
             raise ValueError('la línea base necesita imagen RGB y profundidad')
         dets = []
+        self.rejected = []
         for box in self.detect(frame.rgb, frame.instruction):
             p = self.lift(box, frame.depth, frame.K)
             if p is not None:

@@ -2,6 +2,7 @@
 
 import csv
 import math
+import os
 import time
 
 import numpy as np
@@ -241,6 +242,12 @@ def run_estimator(trial, estimator, cfg, instruction=''):
         dets = estimator.estimate(frame)
         out.append({'view': vm['view'], 'infer_ms': (time.perf_counter() - t0) * 1000.0,
                     'detections': [d.to_dict() for d in dets]})
+        # Imágenes anotadas por vista (si el estimador las da): una por cámara.
+        for cam, img in (getattr(estimator, 'debug_images', None) or {}).items():
+            if img is not None:
+                d = os.path.join(trial, 'views', estimator.name)
+                os.makedirs(d, exist_ok=True)
+                dataset.save_rgb(os.path.join(d, 'view_%03d_%s' % (vm['view'], cam)), img)
     data = {'estimator': estimator.name, 'frame': 'camera_optical', 'cameras': cameras,
             'instruction': instruction, 'views': out}
     dump_yaml(data, dataset.estimates_path(trial, estimator.name))
