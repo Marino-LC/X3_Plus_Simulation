@@ -1,0 +1,1 @@
+run,goal_id,success,fail_reason,nav_status,mission_time,wall_time,rtf,cpu_gazebo_per_sim_s,cpu_total_per_sim_s,path_length,shortest_path_length,spl,final_pos_error,final_yaw_error,within_tolerance,recoveries,collisions,replans,ate_localization,ate_odometry,yaw_rmse_localization,cte_rmse,cte_max,heading_rmse,cte_initial_plan_rmse,map_iou,map_iou_tol1,map_wall_error_cm

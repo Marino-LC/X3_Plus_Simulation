@@ -1,0 +1,193 @@
+{
+  "config": {
+    "simulator": "gazebo",
+    "world": "arena_world",
+    "localization": "amcl",
+    "runs": 20,
+    "pos_tol": 0.08,
+    "yaw_tol": 0.15,
+    "goal_timeout": 90.0,
+    "pid_gains": {
+      "kp": 1.949,
+      "ki": 0.256,
+      "kd": 0.938
+    },
+    "spawn": {
+      "x": 0.0,
+      "y": -0.91,
+      "yaw": 1.5708
+    },
+    "goals": [
+      {
+        "id": 1,
+        "label": "esquina_suroeste",
+        "x": -1.0,
+        "y": -0.9,
+        "yaw": 3.1416,
+        "footprint_clearance": 0.1699991918859726,
+        "shortest_path_length": 1.0000499987500624,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            -1.0,
+            -0.9
+          ]
+        ]
+      },
+      {
+        "id": 2,
+        "label": "esquina_sureste",
+        "x": 0.95,
+        "y": -0.85,
+        "yaw": 0.0,
+        "footprint_clearance": 0.2200000000000001,
+        "shortest_path_length": 0.951892851112981,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            0.95,
+            -0.85
+          ]
+        ]
+      },
+      {
+        "id": 3,
+        "label": "detras_del_muro",
+        "x": 0.0,
+        "y": 0.85,
+        "yaw": 1.5708,
+        "footprint_clearance": 0.2699995959443352,
+        "shortest_path_length": 2.0795221465441647,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            0.4900000000000002,
+            0.31000000000000005
+          ],
+          [
+            0.4900000000000002,
+            0.41000000000000014
+          ],
+          [
+            0.43000000000000016,
+            0.5100000000000002
+          ],
+          [
+            0.0,
+            0.85
+          ]
+        ]
+      },
+      {
+        "id": 4,
+        "label": "pasillo_oeste",
+        "x": -1.0,
+        "y": 0.25,
+        "yaw": 1.5708,
+        "footprint_clearance": 0.16691787327300062,
+        "shortest_path_length": 1.684191785468869,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            -0.8499999999999999,
+            -0.44999999999999984
+          ],
+          [
+            -0.8899999999999999,
+            -0.34999999999999987
+          ],
+          [
+            -1.0,
+            0.25
+          ]
+        ]
+      },
+      {
+        "id": 5,
+        "label": "pasillo_este",
+        "x": 0.95,
+        "y": 0.2,
+        "yaw": -1.5708,
+        "footprint_clearance": 0.24999937555256885,
+        "shortest_path_length": 1.531341985302848,
+        "shortest_path": [
+          [
+            0.0,
+            -0.91
+          ],
+          [
+            0.3500000000000001,
+            -0.1499999999999999
+          ],
+          [
+            0.95,
+            0.2
+          ]
+        ]
+      }
+    ],
+    "reference_map": "reference_map/arena_map.yaml",
+    "gazebo_pids": [],
+    "started_at": "2026-11-18 14:29:10"
+  },
+  "summary": {
+    "overall": {
+      "n_episodes": 0,
+      "n_success": 0,
+      "success_rate": null,
+      "wilson_95": null,
+      "total_collisions": 0,
+      "total_recoveries": 0,
+      "fail_reasons": {},
+      "spl": null,
+      "mission_time": null,
+      "path_length": null,
+      "final_pos_error": null,
+      "final_yaw_error": null,
+      "ate_localization": null,
+      "ate_odometry": null,
+      "cte_rmse": null,
+      "heading_rmse": null,
+      "cte_initial_plan_rmse": null,
+      "recoveries": null,
+      "collisions": null,
+      "replans": null,
+      "rtf": null,
+      "cpu_gazebo_per_sim_s": null,
+      "cpu_total_per_sim_s": null,
+      "map_iou": null,
+      "map_iou_tol1": null,
+      "map_wall_error_cm": null
+    },
+    "per_goal": {},
+    "invalid_episodes": 2
+  },
+  "episodes": [
+    {
+      "run": 1,
+      "goal_id": 1,
+      "valid": false,
+      "success": false,
+      "fail_reason": "reset_fallido"
+    },
+    {
+      "run": 1,
+      "goal_id": 2,
+      "valid": false,
+      "success": false,
+      "fail_reason": "reset_fallido"
+    }
+  ]
+}
