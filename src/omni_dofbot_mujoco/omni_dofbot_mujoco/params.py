@@ -3,6 +3,13 @@
 Los valores por defecto son el PUNTO DE PARTIDA de la guía
 (docs/Guia_friccion_mecanum_MuJoCo.md, sección 3). No están identificados
 con el robot real: se calibran con el protocolo de la sección 9.
+
+Gazebo usa los mismos valores, copiados a mano (URDF/SDF no pueden importar
+este archivo). Si cambian aquí, cámbienlos también en:
+  - omni_description/urdf/mecanum_wheel.xacro  (mu, rodillos, junta de rueda, cubo)
+  - omni_description/urdf/omni_urdf.xacro      (masa, CoM e inercia del chasis)
+  - omni_dofbot_bringup/world/arena_pid_tuning.world  (arena y fricción del piso)
+La tabla completa está en el README de la raíz, «Homologación Gazebo ↔ MuJoCo».
 """
 from dataclasses import dataclass
 
@@ -28,13 +35,13 @@ class ModelParams:
     roller_frictionloss: float = 0.0
     roller_sign: int = 1                   # quiralidad; invertir si y sale al revés
     # Fase angular del rodillo 1 en la rueda [grados], medida del ensamble CAD
-    # (omni_description_mujoco/urdf/omni_mujoco2.xml). Con 0° los rodillos de FR y
+    # (models/reference/omni_mujoco2_cad.xml). Con 0° los rodillos de FR y
     # BL quedaban 17.8° corridos respecto a las ranuras del cubo IZQUIERDA y se
     # veían fuera de lugar (reporte semanal 5). Solo cambia dónde está cada
     # rodillo dentro de la rueda; la envolvente de contacto es la misma.
     roller_phase_deg_diag: float = 2.187   # FL y BR (cubo DERECHA)
     roller_phase_deg_anti: float = 17.814  # FR y BL (cubo IZQUIERDA)
-    # --- Mallas de rueda (las de omni_mujoco2 son las de por defecto) ------------
+    # --- Mallas de rueda (las del CAD, models/reference/omni_mujoco2_cad.xml, son las de por defecto) ------------
     # wheel_mesh: "omni"  = cubo DERECHA/IZQUIERDA + 9 RODILLO visibles por rueda
     #             "hex80" = malla anterior 80mm_mecanum_wheel_hex (solo visual)
     # roller_collider: "ellipsoid" = calibrado, ver roller_half_length (por defecto)
@@ -42,7 +49,7 @@ class ModelParams:
     # Las STL (DERECHA, IZQUIERDA, RODILLO) deben estar en models/assets/.
     wheel_mesh: str = "omni"
     roller_collider: str = "ellipsoid"
-    roller_mesh_length: float = 0.04237    # largo de RODILLO.stl [m] (omni_mujoco2.xml)
+    roller_mesh_length: float = 0.04237    # largo de RODILLO.stl [m] (omni_mujoco2_cad.xml)
     # --- Junta de rueda ---------------------------------------------------
     wheel_damping: float = 0.002
     wheel_armature: float = 5e-4

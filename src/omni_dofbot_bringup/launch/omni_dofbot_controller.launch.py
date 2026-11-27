@@ -1,3 +1,11 @@
+"""Omni Dofbot en Gazebo Harmonic (gz_ros2_control).
+
+  ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
+  ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py gui:=false rviz:=false
+
+Para el AG usen gazebo_ag.launch.py, que además lanza el nodo cinemático y la
+odometría (equivalente a omni_dofbot_mujoco/mujoco_ag.launch.py).
+"""
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -9,7 +17,10 @@ from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
-from launch.substitutions import Command
+from launch.conditions import IfCondition
+from launch.substitutions import (
+    Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
+)
 
 
 def generate_launch_description():
@@ -23,11 +34,22 @@ def generate_launch_description():
         get_package_share_directory('omni_dofbot_bringup'),
         'rviz', 'omni_dofbot_trayectory_rviz.rviz'
     )
-    world = os.path.join(
-        get_package_share_directory('omni_dofbot_bringup'),
-        'world', 
-        'arena_pid_tuning.world'  
+    # Mundo seleccionable por argumento. arena_pid_tuning.world es la arena del AG,
+    # homologada con la de MuJoCo (2.42 x 2.42 m, mu = 0.68).
+    world_arg = DeclareLaunchArgument(
+        name='world', default_value='arena_pid_tuning.world',
+        description='Archivo .world dentro de omni_dofbot_bringup/world'
     )
+    gui_arg = DeclareLaunchArgument(
+        name='gui', default_value='true',
+        description='false = Gazebo sin ventana (solo servidor)'
+    )
+    rviz_arg = DeclareLaunchArgument(name='rviz', default_value='true')
+    world = PathJoinSubstitution([
+        get_package_share_directory('omni_dofbot_bringup'),
+        'world',
+        LaunchConfiguration('world')
+    ])
 
     workspace_install_dir = os.path.abspath(os.path.join(pkg_omni_desc, '..'))
 
@@ -56,7 +78,10 @@ def generate_launch_description():
                 'launch', 'gz_sim.launch.py'
             )
         ),
-        launch_arguments={'gz_args': f'-r {world}'}.items()
+        launch_arguments={'gz_args': [
+            PythonExpression(["'-r ' if '", LaunchConfiguration('gui'),
+                              "' == 'true' else '-r -s '"]),
+            world]}.items()
     )
 
     spawn_entity = Node(
@@ -65,7 +90,8 @@ def generate_launch_description():
         arguments=[
             '-topic', 'robot_description',
             '-name', 'omni_dofbot',
-            '-z', '0.1',
+            # Pose de reinicio del AG y de MuJoCo (params.RESET_POSE)
+            '-x', '0.0', '-y', '0.0', '-z', '0.05',
             '-Y','1.570796'
         ],
         output='screen'
@@ -75,6 +101,20 @@ def generate_launch_description():
         package='ros_gz_bridge',
         executable='parameter_bridge',
         arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+        output='screen'
+    )
+
+    # Teletransporte del AG: servicio ROS /world/<mundo>/set_entity_pose (el mismo
+    # nombre que ofrece el puente de MuJoCo) -> servicio gz /world/<mundo>/set_pose.
+    # Sin este puente el AG cae al respaldo con `gz service` (2 s más por prueba).
+    world_name = PythonExpression(["'", LaunchConfiguration('world'), "'.rsplit('.', 1)[0]"])
+    set_pose_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        arguments=[['/world/', world_name,
+                    '/set_pose@ros_gz_interfaces/srv/SetEntityPose']],
+        remappings=[(['/world/', world_name, '/set_pose'],
+                     ['/world/', world_name, '/set_entity_pose'])],
         output='screen'
     )
 
@@ -148,12 +188,6 @@ def generate_launch_description():
         output='screen'
     )
 
-    payload_arg = DeclareLaunchArgument('payload_mass', default_value='1.0')
-
-    robot_description = ParameterValue(
-        Command(['xacro ', urdf_path, ' payload_mass:=$(arg payload_mass)']), value_type=str
-    )
-
     config_arg = DeclareLaunchArgument(
         name='rvizconfig', default_value=rviz_config_path
     )
@@ -161,16 +195,21 @@ def generate_launch_description():
         package='rviz2',
         executable='rviz2',
         arguments=['-d', rviz_config_path],
-        parameters=[{'use_sim_time': True}]
+        parameters=[{'use_sim_time': True}],
+        condition=IfCondition(LaunchConfiguration('rviz'))
     )
 
     return LaunchDescription([
         set_gz_model_path,
+        world_arg,
+        gui_arg,
+        rviz_arg,
         config_arg,
         robot_state_publisher_node,
         gazebo,
         spawn_entity,
         clock_bridge,
+        set_pose_bridge,
         rviz2_node,
 
         # 1. Cargar ruedas en INACTIVE (no dispara switch, no falla)

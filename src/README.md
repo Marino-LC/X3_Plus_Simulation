@@ -37,13 +37,16 @@ Archivos Clave:
 - **launch/omni_display.launch.xml**: Este archivo lanza una instancia en rviz para visualizar el robot omni y el joint_state_publisher_gui para controlar las juntas.
 - **meshes/**: Contiene archivos STL para los componentes visuales del robot.
 - **rviz/omni_rviz.rviz**: Archivo con la configuracion de rviz para su visualizacion.
-- **urdf/**: Contiene archivos Xacro para generar el URDF del robot.
+- **urdf/**: Contiene archivos Xacro para generar el URDF del robot. `mecanum_wheel.xacro` define la rueda mecanum de 9 rodillos libres, con los parámetros homologados con MuJoCo.
 
 ### 5. omni_dofbot_bringup
 Contiene archivos de lanzamiento y configuraciones para el robot Omni Dofbot.
 Archivos Clave:
-- **launch/omni_dofbot_controller.launch.py**: Archivo de lanzamiento para el controlador del omni_dofbot, lanza los controladores para el dofbot y el movil, el robot se visualiza en rviz y gazebo con sus sensores.
+- **launch/omni_dofbot_controller.launch.py**: Archivo de lanzamiento para el controlador del omni_dofbot, lanza los controladores para el dofbot y el movil, el robot se visualiza en rviz y gazebo. Argumentos: `world`, `gui`, `rviz`.
+- **launch/gazebo_ag.launch.py**: Gazebo + nodo cinemático + odometría, listo para correr el AG.
+- **world/arena_pid_tuning.world**: Arena del AG, homologada con la de MuJoCo.
 - **rviz/omni_dofbot_trayectory_rviz.rviz**: Configuración de rviz para el Omni Dofbot.
+- **src/ag_motion_tests.py**: Sintonización de las ganancias PID de la base mecanum mediante Algoritmo Genético. Ver [omni_dofbot_bringup/README.md](omni_dofbot_bringup/README.md) para la explicación completa del experimento, las pruebas y la estructura del AG.
 
 ### 6. omni_dofbot_description
 Proporciona la descripción del robot omni_dofbot, incluyendo su URDF y modelos visuales.
@@ -53,97 +56,33 @@ Archivos Clave:
 - **meshes/**: Contiene archivos STL para los componentes visuales del Omni Dofbot.
 - **urdf/**: Contiene archivos Xacro para generar el URDF del omni_dofbot.
 
-## ¿Cómo instalar el paquete?
+### 7. omni_dofbot_mujoco
+Modelo MuJoCo del omni_dofbot con rodillos libres y puente ROS 2 con las mismas interfaces que Gazebo, para correr el mismo AG en los dos simuladores. Ver el [README de la raíz](../README.md).
+Archivos Clave:
+- **launch/mujoco_ag.launch.py**: Puente MuJoCo + nodo cinemático + odometría, listo para correr el AG.
+- **omni_dofbot_mujoco/params.py**: Parámetros físicos (fuente única; Gazebo los copia).
+- **scripts/run_ag_mujoco.py**: AG sobre MuJoCo sin ROS, en paso fijo.
 
-### Paso 1. Agregar el repositorio:
-Crea un espacio de trabajo destinado a este repositorio dentro de tu carpeta de ros, y dentro de él una carpeta src, por ejemplo:
+## Instalación y ejecución
 
-```shell
-$ mkdir -p ~/ROS2Dev/omni_dofbot/src
-```
+Ver el [README de la raíz](../README.md): instalación con ROS 2 Jazzy + Gazebo Harmonic + MuJoCo, y cómo correr el AG en Gazebo o en MuJoCo.
 
-Ahora muévete a la carpeta /src e inicia git para añadir el repositorio ROSX3_Plus_ROSX3:
-
-```shell
-$ cd ~/ROS2Dev/omni_dofbot/src
-```
+Ejemplo rápido (desde la raíz del workspace):
 
 ```shell
-$ git init
+colcon build --symlink-install
 ```
 
 ```shell
-$ git remote add origin https://github.com/arrg-mx/ROSX3_Plus_ROSX3.git
+source install/setup.bash
 ```
 
-Haz un pull para tener de manera local los archivos del repositorio:
 ```shell
-$ git pull origin
+ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
 ```
 
-Finalmente, una vez se bajen todos los archivos, cambia a la branch humble, que es la que funciona con ros2:
+Con el robot en Gazebo, en otra terminal (con `source install/setup.bash`):
+
 ```shell
-$ git checkout humble 
+ros2 run dofbot_bringup dofbot_trajectory_test.py
 ```
-
-### Paso 2. Compilar los paquetes y hacerles un source:
-Vuelve al nivel de la carpeta de /src
-```shell
-$ cd ..
-```
-
-Compila todos los paquetes: 
-```shell
-$ colcon build
-```
-
-Ahora realiza un source a la carpeta de install
-```shell
-$ source install/setup.bash
-```
-
-### Paso 3. Prueba los paquetes:
-Por ejemplo, probemos el omni_dofbot: 
-```shell
-$ ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py 
-```
-
-Una vez spawneado el robot en gazebo y rviz podemos usar los scripts de los controladores en otra terminal **no olvides volver a hacer source en esta terminal**, por ejemplo: 
-```shell
-$ ros2 run dofbot_bringup dofbot_trajectory_test.py 
-```
-
-## Notas
-### Gazebo
-Si se presentan problemas al visualizar las mallas en Gazebo:
-#### Solución 1.
-En caso de que tengas problemas para visualizar el robot en gazebo, puedes modificar la ruta de gazebo model path que se encuentra en los metadatos del archivo package.xml de cada paquete de description, el fragmento que debes modificar es el siguiente. Deberas hacer esto para los 3 paquetes de description.
-
-```xml
-  <export>
-    <build_type>ament_cmake</build_type>
-    <gazebo_ros gazebo_model_path = "ruta/del/directorio/share/del/paquete/description"/>
-  </export>
-```
-
-#### Solución 2.
-Copiar directamente las 3 carpetas de description al directorio ~/.gazebo/models.
-
-# Estado Actual de la Migración a Gazebo Harmonic (ROS 2 Jazzy)
-
-## Lo que se logró 
-* **Entorno limpio:** Se creó un nuevo workspace (`tesisx3_plus`) migrando los paquetes `omni_description`, `dofbot_description` y `dofbot_bringup` a la nueva estructura de `ament_cmake`.
-* **Lanzamiento base:** El archivo `gazebo_harmonic.launch.py` levanta con éxito el mundo en Gazebo (`ros_gz_sim`) y el `robot_state_publisher`.
-* **Mallas y Geometría:** Se solucionaron los errores de rutas. Gazebo ya localiza y renderiza correctamente todas las mallas (`.stl`) del chasis omnidireccional y del brazo Dofbot usando el prefijo `file://$(find ...)`.
-* **URDF de Control:** Se actualizó la etiqueta de hardware a `<plugin>gz_ros2_control/GazeboSimSystem</plugin>` y el plugin de simulación a `gz_ros2_control::GazeboSimROS2ControlPlugin`.
-
-## Fallos
-El simulador arranca y lanza el robot, pero falla inmediatamente al intentar cargar el `controller_manager` con un **Segmentation fault**.
-
-**Traza del error principal:**
-```text
-[gazebo-2] [INFO] [gz_ros_control]: Loading joint: front_left_joint
-[gazebo-2] [INFO] [gz_ros_control]: 	State:
-[gazebo-2] [INFO] [gz_ros_control]: 		 position
-[gazebo-2] [INFO] [gz_ros_control]: 		 position
-[gazebo-2] Segmentation fault (Invalid permissions for mapped object [0x7bd4c8086010])

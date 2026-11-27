@@ -1,9 +1,16 @@
-# X3 Plus + Dofbot — simulación en MuJoCo
+# X3 Plus + Dofbot — sintonización PID por AG en Gazebo y en MuJoCo
 
-Rama `MuJoCo_simulation`. Objetivo: tener en MuJoCo un modelo del X3 Plus + Dofbot
-con **rodillos mecanum de junta libre** y un **puente ROS 2** que ofrezca las mismas
-interfaces que el Gazebo actual, para correr el AG (`ag_motion_tests.py`) sin
-modificarlo.
+Rama `MuJoCo_simulation`: **la única rama de trabajo** del experimento. Reúne el
+robot de Gazebo con rodillos individuales (antes en `Ruedas_mechanum`, ya
+fusionada aquí) y el modelo de MuJoCo con rodillos de junta libre. Un **puente
+ROS 2** da a MuJoCo las mismas interfaces que Gazebo, así que el AG
+(`ag_motion_tests.py`) corre **sin modificar** en cualquiera de los dos
+simuladores. Los parámetros físicos de Gazebo están homologados con los de MuJoCo
+(sección [Homologación Gazebo ↔ MuJoCo](#homologación-gazebo--mujoco)) para que
+los dos entornos se puedan comparar.
+
+Para correr el AG, ir directo a
+[Correr el AG en Gazebo o en MuJoCo](#correr-el-ag-en-gazebo-o-en-mujoco).
 
 La especificación de partida es la guía
 [docs/Guia_friccion_mecanum_MuJoCo.md](docs/Guia_friccion_mecanum_MuJoCo.md)
@@ -11,7 +18,7 @@ La especificación de partida es la guía
 resume esas especificaciones tal como quedaron implementadas y da los protocolos
 para ejecutarlas.
 
-## Estado (19 nov 2026, MuJoCo 4.0.1)
+## Estado (27 nov 2026, MuJoCo 4.0.1, ROS 2 Jazzy, Gazebo Harmonic)
 
 | Parte | Estado |
 |---|---|
@@ -19,6 +26,7 @@ para ejecutarlas.
 | Arena de 2.42 × 2.42 m, igual en MuJoCo y en `arena_pid_tuning.world` | Implementada |
 | T1–T5, T7, T8, T9 (sin ROS) | **Pasan** con los parámetros de partida (resultados abajo) |
 | AG de Gazebo (`ag_motion_tests.py` sin modificar) sobre MuJoCo, sin ROS | **Funciona**: batería P1–P4 y AG de humo probados (sección [AG en MuJoCo](#ag-en-mujoco-sin-ros-misma-lógica-que-gazebo)) |
+| Gazebo con rodillos individuales, homologado con MuJoCo (27 nov) | **Funciona**: misma batería P1–P4 con fitness a 2 % del de MuJoCo; RTF ≈ 0.7 (ver [comparación](#comparación-de-la-batería-p1p4)) |
 | Puente ROS 2 (`mujoco_bridge_node.py`) | Probado con ROS 2 Jazzy en el reporte semanal 5 (/clock, /joint_states, cmd_vel, set_entity_pose) |
 | T6, T10, AG completo, AG con ROS real | Pendientes |
 | Calibración con hardware (sección 9 de la guía) | Pendiente; hay herramientas listas |
@@ -40,6 +48,7 @@ src/                              workspace ROS 2 (colcon build desde la raíz)
       lockstep.py                     AG + nodos reales + puente sobre MuJoCo en paso fijo
     models/
       assets/                         mallas STL
+      reference/omni_mujoco2_cad.xml  ensamble CAD de la rueda (fases de los rodillos; lo usa una prueba)
       x3plus_rodillos_fijos.xml       conversión directa del URDF (base del generador)
       omni_dofbot_arena.xml           GENERADO: robot + arena
       omni_dofbot_vacio.xml           GENERADO: robot + piso vacío
@@ -51,27 +60,28 @@ src/                              workspace ROS 2 (colcon build desde la raíz)
       view.py                         visor interactivo sin ROS
       run_ag_mujoco.py                AG de Gazebo sobre MuJoCo, sin ROS
     src/mujoco_bridge_node.py       puente ROS 2
-    launch/mujoco_ag.launch.py      puente + nodo cinemático + odometría
+    launch/mujoco_ag.launch.py      puente + nodo cinemático + odometría (para el AG)
     test/test_acceptance.py         T1–T9 + regresiones (chasis visible, rodillos vs CAD)
     test/test_ag_lockstep.py        AG sobre MuJoCo: batería, determinismo, teletransporte
-  omni_dofbot_bringup/            AG, ZN, nodo cinemático, odometría, mundos Gazebo
-                                  (versión final de la sintonización; ver su README.md)
-  omni_dofbot_description/ ...    URDF y paquetes Gazebo (sin cambios; ver src/README.md)
-  omni_description_mujoco/        referencia: rueda CAD de 9 rodillos (COLCON_IGNORE)
+  omni_dofbot_bringup/            AG, ZN, nodo cinemático, odometría, arena de Gazebo
+    launch/gazebo_ag.launch.py      Gazebo + nodo cinemático + odometría (para el AG)
+    launch/omni_dofbot_controller.launch.py   Gazebo + robot + controladores
+    world/arena_pid_tuning.world    arena del AG (homologada con MuJoCo)
+  omni_description/               base móvil: URDF con ruedas de 9 rodillos (mecanum_wheel.xacro)
+  omni_dofbot_description/        robot completo (base + brazo) y ros2_control para Gazebo
+  dofbot_description/, dofbot_bringup/, omni_bringup/   brazo y base por separado
 ```
 
-Cambios de ubicación respecto a la estructura anterior:
-
-| Antes | Ahora |
-|---|---|
-| `X3Plus_MuJoCo_portable/assets/` | `src/omni_dofbot_mujoco/models/assets/` |
-| `X3Plus_MuJoCo_portable/x3plus_mujoco.xml` | `src/omni_dofbot_mujoco/models/x3plus_rodillos_fijos.xml` |
-| `X3_Plus_Simulation/src/omni_description_mujoco/` | `src/omni_description_mujoco/` |
-| `Documentación - Conversion URDF a MuJoCo.md` | `docs/Conversion_URDF_a_MuJoCo.md` |
-
-`omni_description_mujoco` declara el mismo nombre de paquete que `omni_description`
-(`<name>omni_description</name>`), así que lleva un `COLCON_IGNORE` para que el
-workspace compile. Se conserva como referencia de la geometría del rodillo.
+Se quitaron del repositorio para no confundir: el stack de Nav2 (parámetros,
+mapas, `nav2_arena.launch.py`, `arena_world.world`, `waypoints_nav.py`) y el AG
+anterior basado en Nav2 (`ag_tuner.py`); los intentos antiguos de conversión
+URDF → MJCF dentro de los paquetes de descripción (`urdf_a_mjcf.py`,
+`omni_mujoco*.xml`, `compiled.urdf`), sustituidos por `omni_dofbot_mujoco`; el
+paquete duplicado `omni_description_mujoco` (del que solo se conservó el XML del
+CAD en `models/reference/`); modelos MuJoCo duplicados (`*_omni_ellipsoid.xml`,
+iguales a los de por defecto); un `.zip` viejo de la biblioteca; el launch de
+diagnóstico y su xacro sin control; y el submódulo vacío `src/robot-x-main3`.
+Todo sigue en el historial de git.
 
 ## Especificaciones
 
@@ -114,7 +124,7 @@ Notas:
 - **Colisiones.** Solo chocan rodillos y chasis contra piso y paredes. El brazo
   no tiene geometría de colisión.
 - **Fase de los rodillos (corregida el 19 nov).** Los rodillos se colocaban a
-  partir de 0° en las cuatro ruedas. En el CAD (`omni_mujoco2.xml`) el rodillo 1
+  partir de 0° en las cuatro ruedas. En el CAD (`models/reference/omni_mujoco2_cad.xml`) el rodillo 1
   está a 2.187° en FL/BR (cubo DERECHA) y a 17.814° en FR/BL (cubo IZQUIERDA). En
   FR y BL eso dejaba los rodillos visibles hasta 10 mm y 12° fuera de las
   ranuras del cubo: los «rodillos fuera de lugar» del reporte 5. Ahora las fases
@@ -132,9 +142,9 @@ Notas:
 | Elemento | Gazebo | MuJoCo |
 |---|---|---|
 | Gravedad, paso | 9.81 m/s², 0.001 s | igual |
-| Piso | caja con μ = 0.68 (μ2 = 0.4) | 2.42 × 2.42 m, plano con μ = 0.68; sin μ2 |
+| Piso | caja de 2.42 × 2.42 m, μ = μ2 = 0.68 (isotrópica) | 2.42 × 2.42 m, plano con μ = 0.68 |
 | Paredes | 0.30 m de alto, 0.03 m de espesor, μ = 0.5 | cuatro cajas estáticas |
-| Pose de reinicio | (0, 0, 0.05), yaw = π/2 | igual |
+| Pose de reinicio y de aparición | (0, 0, 0.05), yaw = π/2 | igual |
 | Marcadores | (0,0), (0,0.8), (0.35,0.8) | solo visuales |
 
 La arena mide **2.42 × 2.42 m**. El AG sintoniza con movimiento en x, y y yaw:
@@ -147,6 +157,113 @@ el robot en yaw = π/2), y eso no cabe en una arena de 1.22 m de ancho. Con
 usen la misma arena. Las dimensiones de MuJoCo se cambian con
 `build_model.py --arena_x ... --arena_y ...`.
 
+## Homologación Gazebo ↔ MuJoCo
+
+El AG de MuJoCo es la versión final (con las correcciones del CHANGELOG #10), así
+que los parámetros de Gazebo se igualaron a los de MuJoCo. La fuente única es
+`params.py`; Gazebo no puede importarlo, y los valores están copiados a mano en
+tres archivos (los tres lo dicen en un comentario):
+
+| Parámetro | MuJoCo (`params.py`) | Gazebo | Archivo de Gazebo |
+|---|---|---|---|
+| Masa total | `total_mass` = 4.8 kg | 4.8 kg | (suma del URDF) |
+| Chasis: masa, CoM, inercia | 4.1955 kg en `(0.02, 0, 0)`, caja 0.24 × 0.17 × 0.10 m | 4.1954 kg, mismos CoM e inercia (0.0136, 0.0236, 0.0302) | `omni_description/urdf/omni_urdf.xacro` |
+| Cubo de rueda | 0.0515 kg | 2 platos de 0.02577 kg | `omni_description/urdf/mecanum_wheel.xacro` |
+| Rodillos | 9 por rueda, 5.77 g | 9 por rueda, 5.77 g (del CAD) | ídem |
+| Damping del rodillo | `roller_damping` = 1e-4 | 1e-4 (antes 0.005) | ídem |
+| Fricción seca del rodillo | `roller_frictionloss` = 0 | 0 (antes 0.001) | ídem |
+| Damping de la junta de rueda | `wheel_damping` = 0.002 | 0.002 (antes 0) | ídem |
+| Par máximo de rueda | `wheel_max_torque` = 1.0 N·m | `effort` = 1.0 (antes 100) | ídem |
+| Velocidad máxima de rueda | 25 rad/s | 25 rad/s | ídem |
+| Fricción rodillo/piso | μ = 0.68 | μ = μ2 = 0.68 en rodillos y piso (antes piso 0.68/0.4 con `fdir1`) | `mecanum_wheel.xacro`, `arena_pid_tuning.world` |
+| Colisiones | solo rodillos y chasis | solo rodillos y chasis (los platos no chocan) | `mecanum_wheel.xacro` |
+| Arena, paredes, gravedad, paso | 2.42 m, 0.30 m, 9.81, 1 ms | igual | `arena_pid_tuning.world` |
+| Pose inicial | `RESET_POSE` = (0, 0, 0.05), yaw = π/2 | igual al aparecer y en cada teletransporte | `omni_dofbot_controller.launch.py` |
+| Nodos de control, odometría y AG | `omni_dofbot_bringup/src` | los mismos archivos | — |
+
+Antes de homologar, el robot de Gazebo pesaba 6.94 kg (chasis de 5 kg con inercia
+100 veces mayor que la de una caja de su tamaño, y platos de 0.193 kg).
+
+Diferencias que **no** se pueden igualar (hay que tenerlas en cuenta al comparar):
+
+- **Actuador de rueda.** MuJoCo usa un servo de velocidad `kv = 2` saturado a
+  1 N·m; `gz_ros2_control` impone la velocidad como restricción ideal, limitada
+  por el mismo `effort`. En los dos casos la dinámica que domina es la planta del
+  motor dentro de `mecanum_kinematic_node.py` (τ ≈ 0.58 s), que es la misma.
+- **Forma del rodillo.** MuJoCo usa un elipsoide calibrado (envolvente plana);
+  Gazebo usa la malla `RODILLO.stl`. URDF no tiene elipsoides.
+- **Armadura.** MuJoCo añade armadura a rodillos y ruedas; URDF no tiene ese campo.
+- **Motor de física y contacto.** MuJoCo con cono elíptico e `impratio = 10`;
+  Gazebo Harmonic con DART. Las fricciones se combinan con el mínimo de las dos
+  superficies, por eso rodillo y piso llevan el mismo μ.
+- **Ground truth.** `/ground_truth/odom` solo existe en MuJoCo; la comparación
+  directa se hace con `/odom`.
+
+### Comparación de la batería P1–P4
+
+Una evaluación del AG con las ganancias del fabricante `[0.8, 0.06, 0.5]` (27 nov):
+
+| | P1 | P2 | P3 | P4 | fitness |
+|---|---|---|---|---|---|
+| MuJoCo (paso fijo, `run_ag_mujoco.py --battery 0.8 0.06 0.5`) | 17.36 | 0.68 | 4.94 | 17.32 | **10.29** |
+| Gazebo homologado (`gazebo_ag.launch.py gui:=false`, RTF 0.67) | 17.60 | 0.66 | 5.20 | 17.73 | **10.52** |
+
+La diferencia es de ~2 %, del orden del ruido de una misma evaluación (±1.5 %,
+ver «Revisión de resultados»). En Gazebo la corrida se hizo con el filtro de RTF
+desactivado (ver el siguiente apartado), así que es indicativa.
+
+### Gazebo: factor de tiempo real
+
+Con 36 rodillos con colisión de malla, Gazebo corrió a **RTF ≈ 0.67–0.80** sin
+ventana en una máquina de 12 núcleos. El AG descarta toda evaluación con RTF medio
+< `RTF_MIN = 0.90`, porque el PID incremental no normaliza por dt; con ese RTF
+el AG en Gazebo repite cada evaluación sin fin. Opciones:
+
+- Correr Gazebo con `gui:=false rviz:=false` y sin otras cargas.
+- Usar MuJoCo en paso fijo para la sintonización (no depende del RTF) y Gazebo para
+  validar las ganancias obtenidas.
+- Bajar `RTF_MIN` en `ag_motion_tests.py`. Es una decisión de diseño: cambia la
+  validez de la medición y debe quedar reportado.
+
+## Correr el AG en Gazebo o en MuJoCo
+
+El mismo `ag_motion_tests.py`, la misma arena y los mismos nodos. Compilar una vez
+(ver [Instalación](#instalación)) y, en cada terminal, `source install/setup.bash`.
+
+| | Terminal 1 | Terminal 2 |
+|---|---|---|
+| **Gazebo** | `ros2 launch omni_dofbot_bringup gazebo_ag.launch.py` | `ros2 run omni_dofbot_bringup ag_motion_tests.py` |
+| **MuJoCo con ROS** (tiempo real) | `ros2 launch omni_dofbot_mujoco mujoco_ag.launch.py` | `ros2 run omni_dofbot_bringup ag_motion_tests.py` |
+| **MuJoCo sin ROS** (paso fijo, ~5–8×) | `cd src/omni_dofbot_mujoco/scripts && python3 run_ag_mujoco.py --seed 1 --out resultados_ag` | — |
+
+Gazebo:
+
+```bash
+ros2 launch omni_dofbot_bringup gazebo_ag.launch.py
+```
+
+Sin ventana de Gazebo (recomendado para el AG, por el RTF):
+
+```bash
+ros2 launch omni_dofbot_bringup gazebo_ag.launch.py gui:=false
+```
+
+MuJoCo con ROS:
+
+```bash
+ros2 launch omni_dofbot_mujoco mujoco_ag.launch.py
+```
+
+En los dos casos, en otra terminal:
+
+```bash
+ros2 run omni_dofbot_bringup ag_motion_tests.py
+```
+
+Las salidas (`ag_results.json`, `.png`, `.html`) se escriben en el directorio
+desde el que se lanzó el AG, igual en los dos simuladores. Los detalles del AG
+(pruebas, costo, rondas) están en `src/omni_dofbot_bringup/README.md`.
+
 ### Interfaces ROS 2 del puente
 
 | Interfaz | Tipo | Función |
@@ -156,7 +273,7 @@ usen la misma arena. Las dimensiones de MuJoCo se cambian con
 | `/wheel_velocity_controller/commands` | `std_msgs/Float64MultiArray` | `[fl, fr, br, bl]` rad/s |
 | `/dofbot_trajectory_controller/joint_trajectory` | `trajectory_msgs/JointTrajectory` | interpolación lineal hasta `time_from_start` |
 | `/dofbot_gripper_controller/joint_trajectory` | `trajectory_msgs/JointTrajectory` | igual, para `grip_joint` |
-| `/world/arena_pid_tuning/set_entity_pose` | `ros_gz_interfaces/SetEntityPose` | teletransporte: fija `qpos`, anula `qvel`, `mj_forward` |
+| `/world/arena_pid_tuning/set_entity_pose` | `ros_gz_interfaces/SetEntityPose` | teletransporte: fija `qpos`, anula `qvel`, `mj_forward`. En Gazebo, `omni_dofbot_controller.launch.py` ofrece el mismo servicio con `ros_gz_bridge` (→ `set_pose` de gz) |
 | `/ground_truth/odom` | `nav_msgs/Odometry` | pose real del chasis (nuevo) |
 | `/mujoco_bridge_node/reset` | `std_srvs/Empty` | estado inicial completo |
 
@@ -648,9 +765,7 @@ valores candidatos hasta igualar la velocidad en régimen medida.
 - Correr el AG completo en MuJoCo y comparar las ganancias con las de Gazebo.
 - Sustituir la masa concentrada del chasis por inercias reales.
 - Confirmar el par máximo del motor (`wheel_max_torque`) y `wheel_kv` con T6.
-- `omni_dofbot_controller.launch.py` del repositorio no tiene el argumento `world:=` que menciona el README del AG; si su versión local lo tiene, falta subirla.
+- Gazebo con rodillos corre a RTF < 0.9 en la máquina de pruebas; ver «Gazebo: factor de tiempo real».
 - El piso es un plano infinito, no una caja; dentro de las paredes es equivalente.
-- La dirección con μ2 = 0.4 de Gazebo no tiene equivalente; se calibra con datos reales.
 - Coordinar con Marino cómo usa el AG `/ground_truth/odom`.
-- `src/robot-x-main3` está registrado como submódulo pero no hay `.gitmodules`; queda vacío al clonar.
 - Plan B de la guía: si T2–T4 dejan de pasar con el modelo calibrado, reportar MuJoCo con ruedas simplificadas como limitación.

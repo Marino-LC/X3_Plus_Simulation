@@ -6,6 +6,10 @@ pinza. Su función principal es **sintonizar las ganancias PID (Kp, Ki, Kd) del 
 las ruedas con un Algoritmo Genético (AG)**. Para que las ganancias se puedan pasar al robot físico,
 el PID se simula en el mismo dominio numérico que el firmware del fabricante.
 
+El **mismo** `ag_motion_tests.py` corre en Gazebo y en MuJoCo, sin cambios: el puente de MuJoCo
+(`omni_dofbot_mujoco`) ofrece las mismas interfaces ROS 2 que Gazebo. Los parámetros físicos de los
+dos simuladores están homologados; ver el README de la raíz («Homologación Gazebo ↔ MuJoCo»).
+
 ---
 
 ## 1. Idea general del experimento
@@ -15,11 +19,11 @@ el PID se simula en el mismo dominio numérico que el firmware del fabricante.
           │  población de [Kp,Ki,Kd] → para cada individuo: set_parameters → batería P1..P4│
           │  → fitness (ITAE + tiempo + error final) → selección / cruza / mutación         │
           └───────┬───────────────────────────┬──────────────────────────┬────────────────┘
-       /cmd_vel   │       set_parameters      │ reset_controller_state   │ teleport (gz set_pose)
+       /cmd_vel   │       set_parameters      │ reset_controller_state   │ teleport (set_entity_pose)
                   ▼       (kp, ki, kd)        ▼                          ▼  + reset_pose
    ┌───────────────────────────────┐                          ┌────────────────────────┐
-   │   mecanum_kinematic_node.py   │ /wheel_velocity_         │   Gazebo (gz sim)      │
-   │  cinemática inversa + PID     │──controller/commands────▶│   omni_dofbot +        │
+   │   mecanum_kinematic_node.py   │ /wheel_velocity_         │ Gazebo  ó  MuJoCo      │
+   │  cinemática inversa + PID     │──controller/commands────▶│ (puente) omni_dofbot + │
    │  incremental + planta motor   │                          │   arena_pid_tuning     │
    └───────────────▲───────────────┘                          └──────────┬─────────────┘
                    │ /joint_states (velocidad real de ruedas)            │
@@ -196,35 +200,51 @@ colcon build --packages-select omni_dofbot_description omni_dofbot_bringup
 source install/setup.bash
 ```
 
-En cuatro terminales, cada una con el workspace cargado (`source install/setup.bash`):
+Con el workspace cargado (`source install/setup.bash`) en cada terminal. Las dos opciones usan
+la misma arena (`arena_pid_tuning`, 2.42 × 2.42 m) y el mismo AG.
 
-**Terminal 1: simulación.** Usar la arena de sintonización; el AG teletransporta en el mundo
-`arena_pid_tuning`.
-
-```bash
-ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py world:=arena_pid_tuning.world
-```
-
-**Terminal 2: cinemática + PID**
+**Gazebo**
 
 ```bash
-ros2 run omni_dofbot_bringup mecanum_kinematic_node.py
+ros2 launch omni_dofbot_bringup gazebo_ag.launch.py
 ```
 
-**Terminal 3: odometría** (debe estar activa antes de iniciar el AG)
+`gazebo_ag.launch.py` incluye `omni_dofbot_controller.launch.py` (Gazebo, robot, controladores y
+el puente del servicio de teletransporte) y lanza el nodo cinemático y la odometría. Con
+`gui:=false` corre sin ventana y con `rviz:=true` abre RViz.
+
+**MuJoCo** (con ROS 2, a tiempo real)
 
 ```bash
-ros2 run omni_dofbot_bringup Mecanum_odometry_node.py
+ros2 launch omni_dofbot_mujoco mujoco_ag.launch.py
 ```
 
-**Terminal 4: algoritmo genético**
+**En los dos casos, en otra terminal:**
 
 ```bash
 ros2 run omni_dofbot_bringup ag_motion_tests.py
 ```
 
-> Sin el argumento `world`, el launch carga `arena_world.world`, el mundo que usan Nav2 y
-> `waypoints_nav.py`.
+MuJoCo también puede correr el AG sin ROS y más rápido que tiempo real
+(`src/omni_dofbot_mujoco/scripts/run_ag_mujoco.py`, ver el README de la raíz).
+
+Si prefieren lanzar los nodos por separado en Gazebo (cuatro terminales):
+
+```bash
+ros2 launch omni_dofbot_bringup omni_dofbot_controller.launch.py
+```
+
+```bash
+ros2 run omni_dofbot_bringup mecanum_kinematic_node.py
+```
+
+```bash
+ros2 run omni_dofbot_bringup Mecanum_odometry_node.py
+```
+
+```bash
+ros2 run omni_dofbot_bringup ag_motion_tests.py
+```
 
 Para probar a mano unas ganancias encontradas:
 
@@ -239,22 +259,15 @@ ros2 param set /mecanum_kinematic_node kp 1.234
 ```
 omni_dofbot_bringup/
 ├── launch/
-│   ├── omni_dofbot_controller.launch.py   # Gazebo + robot + controladores (ruedas, brazo, pinza, JSB) + RViz
-│   ├── omni_dofbot_diagnostic.launch.py   # variante para diagnóstico
-│   └── nav2_arena.launch.py               # Nav2 sobre arena_world (trabajo posterior)
+│   ├── gazebo_ag.launch.py                # ★ Gazebo + nodo cinemático + odometría (para el AG)
+│   └── omni_dofbot_controller.launch.py   # Gazebo + robot + controladores (ruedas, brazo, pinza, JSB) + RViz
 ├── src/
 │   ├── mecanum_kinematic_node.py          # ★ cinemática inversa + PID incremental + planta del motor
 │   ├── Mecanum_odometry_node.py           # ★ odometría por cinemática directa
 │   ├── ag_motion_tests.py                 # ★ AG (DEAP) + batería de pruebas P1–P4
-│   ├── zn_tuner.py / zn_tuner_openloop.py # sintonización Ziegler–Nichols (método de comparación)
-│   ├── ag_tuner.py                        # versión previa del AG (histórica, no se instala)
-│   └── waypoints_nav.py                   # seguimiento de waypoints con Nav2
+│   └── zn_tuner.py / zn_tuner_openloop.py # sintonización Ziegler–Nichols (método de comparación)
 ├── world/
-│   ├── arena_pid_tuning.world             # ★ arena plana para la sintonización
-│   ├── arena_world.world                  # arena con mapa para Nav2
-│   └── Mundo_mesa_y_cajas.world
-├── config/   (nav2_params.yaml, waypoints.yaml)
-├── maps/     (arena_map.pgm/.yaml, generate_map.py)
+│   └── arena_pid_tuning.world             # ★ arena del AG, homologada con la de MuJoCo
 └── rviz/     (omni_dofbot_trayectory_rviz.rviz)
 ```
 
@@ -277,5 +290,6 @@ omni_dofbot_bringup/
 - El modelo del motor usa una sola ganancia estática lineal para las 4 ruedas y una zona muerta
   promedio. No se modela la saturación por voltaje de batería ni el lazo de corrección de yaw del
   firmware.
-- Las mallas de las ruedas mecanum no modelan cada rodillo, así que la física del desplazamiento
-  lateral (P4) en Gazebo es una aproximación.
+- Con las ruedas de 9 rodillos (36 colisiones de malla), Gazebo corre a RTF ≈ 0.7 en una
+  máquina de 12 núcleos, por debajo de `RTF_MIN = 0.90`: el AG descarta todas las evaluaciones.
+  Ver el README de la raíz, «Gazebo: factor de tiempo real».

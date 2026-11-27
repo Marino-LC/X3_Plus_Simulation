@@ -1,3 +1,0 @@
-prueba,nombre,resultado,detalle
-T2,Avance en x,PASA,"medido=0.3993 m, ideal=0.4000 m, error=0.18 % (<5 %)"
-T3,Avance lateral en y,PASA,"medido=0.3875 m, ideal=0.4000 m, error=3.14 % (<5 %)"

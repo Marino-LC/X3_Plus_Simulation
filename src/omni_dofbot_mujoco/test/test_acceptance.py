@@ -49,10 +49,10 @@ def _cad_rollers():
     import xml.etree.ElementTree as ET
     import numpy as np
     import mujoco
-    path = os.path.join(os.path.dirname(__file__), "..", "..", "omni_description_mujoco",
-                        "urdf", "omni_mujoco2.xml")
+    path = os.path.join(os.path.dirname(__file__), "..", "models", "reference",
+                        "omni_mujoco2_cad.xml")
     if not os.path.isfile(path):
-        pytest.skip("no está omni_mujoco2.xml")
+        pytest.skip("no está models/reference/omni_mujoco2_cad.xml")
     out = {}
     for w in ET.parse(path).getroot().iter("body"):
         if not w.get("name", "").endswith("_wheel"):

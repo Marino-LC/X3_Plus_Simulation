@@ -16,6 +16,34 @@
 -->
 <robot xmlns:xacro="http://ros.org/wiki/xacro">
 
+    <!--
+        PARÁMETROS HOMOLOGADOS CON MuJoCo
+        Fuente única: src/omni_dofbot_mujoco/omni_dofbot_mujoco/params.py (ModelParams).
+        Si cambian allí, cámbienlos aquí también (ver README de la raíz, «Homologación
+        Gazebo ↔ MuJoCo»). URDF no tiene armadura de junta: roller_armature y
+        wheel_armature de MuJoCo no tienen equivalente.
+    -->
+    <xacro:property name="contact_mu"          value="0.68"/>    <!-- mu -->
+    <xacro:property name="roller_damping"      value="1e-4"/>    <!-- roller_damping -->
+    <xacro:property name="roller_frictionloss" value="0.0"/>     <!-- roller_frictionloss -->
+    <xacro:property name="wheel_damping"       value="0.002"/>   <!-- wheel_damping -->
+    <xacro:property name="wheel_frictionloss"  value="0.0"/>     <!-- wheel_frictionloss -->
+    <xacro:property name="wheel_max_torque"    value="1.0"/>     <!-- wheel_max_torque [N·m] (SUPUESTO) -->
+    <xacro:property name="wheel_max_vel"       value="25.0"/>    <!-- max_wheel_vel [rad/s] -->
+    <!-- Cubo de la rueda = 0.0515 kg, igual que la rueda del URDF original que usa
+         MuJoCo, repartido en los dos platos. Inercia del cubo en MuJoCo: 2.4e-5 axial,
+         1.5e-5 transversal (descontando el traslado de cada plato a ~9 mm). -->
+    <xacro:property name="hub_plate_mass"      value="0.02577"/>
+    <xacro:property name="hub_plate_ixx"       value="5.3e-6"/>
+    <xacro:property name="hub_plate_izz"       value="1.2e-5"/>
+
+    <xacro:macro name="roller_contact" params="prefix i">
+        <gazebo reference="${prefix}_roller_${i}">
+            <mu1>${contact_mu}</mu1>
+            <mu2>${contact_mu}</mu2>
+        </gazebo>
+    </xacro:macro>
+
     <xacro:property name="mecanum_mesh_dir" value="file://$(find omni_description)/meshes/X3"/>
 
     <!-- Quiralidad DERECHA (DERECHA.stl) -->
@@ -24,9 +52,9 @@
         <link name="${prefix}_wheel">
             <inertial>
                 <origin xyz="-2.6213984065263684e-15 -6.944101739142697e-17 -0.008670638697794967" rpy="0.0 -0.0 0.0"/>
-                <mass value="0.19277691549739548"/>
-                <inertia ixx="3.917018233893549e-05" ixy="2.2311041902867496e-18" ixz="1.1724355802718083e-18"
-                         iyy="3.917018233815902e-05" iyz="-1.3206389364025225e-19" izz="6.710310113924815e-05"/>
+                <mass value="${hub_plate_mass}"/>
+                <inertia ixx="${hub_plate_ixx}" ixy="0.0" ixz="0.0"
+                         iyy="${hub_plate_ixx}" iyz="0.0" izz="${hub_plate_izz}"/>
             </inertial>
             <visual>
                 <origin xyz="0.0 0.0 -0.018536" rpy="-1.9721522630525295e-31 -2.3353329992581426e-61 -1.1841545112969503e-30"/>
@@ -37,12 +65,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 -0.018536" rpy="-1.9721522630525295e-31 -2.3353329992581426e-61 -1.1841545112969503e-30"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/DERECHA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_joint" type="continuous">
@@ -50,15 +78,16 @@
             <parent link="${parent}"/>
             <child link="${prefix}_wheel"/>
             <axis xyz="0 0 1"/>
-            <limit effort="100" velocity="25.0"/>
+            <limit effort="${wheel_max_torque}" velocity="${wheel_max_vel}"/>
+            <dynamics damping="${wheel_damping}" friction="${wheel_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_plate_2">
             <inertial>
                 <origin xyz="-2.621398406526372e-15 -6.94410173914267e-17 0.009865361302205012" rpy="0.0 0.0 0.0"/>
-                <mass value="0.19277691549739548"/>
-                <inertia ixx="3.9170182338935664e-05" ixy="2.2158381900172485e-18" ixz="1.1724355802718102e-18"
-                         iyy="3.9170182338159036e-05" iyz="-1.3206389364024915e-19" izz="6.710310113924793e-05"/>
+                <mass value="${hub_plate_mass}"/>
+                <inertia ixx="${hub_plate_ixx}" ixy="0.0" ixz="0.0"
+                         iyy="${hub_plate_ixx}" iyz="0.0" izz="${hub_plate_izz}"/>
             </inertial>
             <visual>
                 <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
@@ -69,12 +98,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/DERECHA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_plate_2_joint" type="fixed">
@@ -113,7 +142,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_1"/>
             <axis xyz="2.402031829551454e-07 -4.4441721530619205e-07 0.9999998529743616"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_2">
@@ -146,7 +175,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_2"/>
             <axis xyz="4.72187707212246e-07 -3.7811381864427673e-07 0.9999999731893168"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_3">
@@ -179,7 +208,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_3"/>
             <axis xyz="-3.0094495512278385e-07 1.08901604845002e-07 1.0000003567723852"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_4">
@@ -212,7 +241,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_4"/>
             <axis xyz="-4.843221603038905e-07 5.850288692377248e-08 1.0000002354328532"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_5">
@@ -245,7 +274,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_5"/>
             <axis xyz="3.458780886145263e-07 3.245384191941092e-07 1.0000002259128622"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_6">
@@ -278,7 +307,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_6"/>
             <axis xyz="-4.184712762977938e-07 2.657143597234457e-07 0.999999849860866"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_7">
@@ -311,7 +340,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_7"/>
             <axis xyz="1.7805425323036417e-07 -5.224691109750879e-07 1.0000000910443436"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_8">
@@ -344,7 +373,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_8"/>
             <axis xyz="1.6116768349061505e-07 -1.155820350540182e-08 1.0000003330324314"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_9">
@@ -377,8 +406,19 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_9"/>
             <axis xyz="-1.5901610209145822e-07 -2.990393351276488e-07 1.0000000674784404"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
+
+        <!-- Fricción de contacto rodillo/piso = mu de MuJoCo (params.py). -->
+        <xacro:roller_contact prefix="${prefix}" i="1"/>
+        <xacro:roller_contact prefix="${prefix}" i="2"/>
+        <xacro:roller_contact prefix="${prefix}" i="3"/>
+        <xacro:roller_contact prefix="${prefix}" i="4"/>
+        <xacro:roller_contact prefix="${prefix}" i="5"/>
+        <xacro:roller_contact prefix="${prefix}" i="6"/>
+        <xacro:roller_contact prefix="${prefix}" i="7"/>
+        <xacro:roller_contact prefix="${prefix}" i="8"/>
+        <xacro:roller_contact prefix="${prefix}" i="9"/>
 
     </xacro:macro>
 
@@ -388,9 +428,9 @@
         <link name="${prefix}_wheel">
             <inertial>
                 <origin xyz="-2.621400133639507e-15 -5.7867552618973665e-18 -0.008670633227399954" rpy="0.0 -0.0 0.0"/>
-                <mass value="0.19277678848605548"/>
-                <inertia ixx="3.917010169678587e-05" ixy="4.4622083805737217e-20" ixz="1.1724328158344976e-18"
-                         iyy="3.9170101696009665e-05" iyz="-2.2160851523965214e-20" izz="6.710295818528929e-05"/>
+                <mass value="${hub_plate_mass}"/>
+                <inertia ixx="${hub_plate_ixx}" ixy="0.0" ixz="0.0"
+                         iyy="${hub_plate_ixx}" iyz="0.0" izz="${hub_plate_izz}"/>
             </inertial>
             <visual>
                 <origin xyz="0.0 0.0 -0.018536" rpy="0.0 -0.0 0.0"/>
@@ -401,12 +441,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 -0.018536" rpy="0.0 -0.0 0.0"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/IZQUIERDA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_joint" type="continuous">
@@ -414,15 +454,16 @@
             <parent link="${parent}"/>
             <child link="${prefix}_wheel"/>
             <axis xyz="0 0 1"/>
-            <limit effort="100" velocity="25.0"/>
+            <limit effort="${wheel_max_torque}" velocity="${wheel_max_vel}"/>
+            <dynamics damping="${wheel_damping}" friction="${wheel_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_plate_2">
             <inertial>
                 <origin xyz="-2.621400133639508e-15 -5.786755261897515e-18 0.009865366772600083" rpy="0.0 0.0 0.0"/>
-                <mass value="0.19277678848605548"/>
-                <inertia ixx="3.9170101696785825e-05" ixy="4.0657581468206416e-20" ixz="1.1724328158345038e-18"
-                         iyy="3.917010169601002e-05" iyz="-2.2160851523966063e-20" izz="6.710295818528983e-05"/>
+                <mass value="${hub_plate_mass}"/>
+                <inertia ixx="${hub_plate_ixx}" ixy="0.0" ixz="0.0"
+                         iyy="${hub_plate_ixx}" iyz="0.0" izz="${hub_plate_izz}"/>
             </inertial>
             <visual>
                 <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
@@ -433,12 +474,12 @@
                     <color rgba="0.7 0.7 0.7 1"/>
                 </material>
             </visual>
-            <collision>
+            <!-- <collision>
                 <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
                 <geometry>
                     <mesh filename="${mecanum_mesh_dir}/IZQUIERDA.stl" scale="0.001 0.001 0.001"/>
                 </geometry>
-            </collision>
+            </collision> -->
         </link>
 
         <joint name="${prefix}_plate_2_joint" type="fixed">
@@ -477,7 +518,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_1"/>
             <axis xyz="-1.780542526197415e-07 -5.224691118077551e-07 1.0000000910443436"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_2">
@@ -510,7 +551,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_2"/>
             <axis xyz="4.184712774080168e-07 2.657143595014011e-07 0.9999998498608658"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_3">
@@ -543,7 +584,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_3"/>
             <axis xyz="-3.458780878373702e-07 3.245384199712653e-07 1.0000002259128622"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_4">
@@ -576,7 +617,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_4"/>
             <axis xyz="4.843221604808323e-07 5.850288786746205e-08 1.0000002354328532"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_5">
@@ -609,7 +650,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_5"/>
             <axis xyz="3.009449549284948e-07 1.0890160589971387e-07 1.0000003567723854"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_6">
@@ -642,7 +683,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_6"/>
             <axis xyz="-4.721877082669579e-07 -3.7811381814467637e-07 0.9999999731893168"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_7">
@@ -675,7 +716,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_7"/>
             <axis xyz="-2.40203183898835e-07 -4.4441721586130356e-07 0.9999998529743617"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_8">
@@ -708,7 +749,7 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_8"/>
             <axis xyz="1.5901610195268034e-07 -2.9903933618236067e-07 1.0000000674784406"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
 
         <link name="${prefix}_roller_9">
@@ -741,8 +782,19 @@
             <parent link="${prefix}_wheel"/>
             <child link="${prefix}_roller_9"/>
             <axis xyz="-1.6116768346285948e-07 -1.1558204560113694e-08 1.0000003330324314"/>
-            <dynamics damping="0.005" friction="0.001"/>
+            <dynamics damping="${roller_damping}" friction="${roller_frictionloss}"/>
         </joint>
+
+        <!-- Fricción de contacto rodillo/piso = mu de MuJoCo (params.py). -->
+        <xacro:roller_contact prefix="${prefix}" i="1"/>
+        <xacro:roller_contact prefix="${prefix}" i="2"/>
+        <xacro:roller_contact prefix="${prefix}" i="3"/>
+        <xacro:roller_contact prefix="${prefix}" i="4"/>
+        <xacro:roller_contact prefix="${prefix}" i="5"/>
+        <xacro:roller_contact prefix="${prefix}" i="6"/>
+        <xacro:roller_contact prefix="${prefix}" i="7"/>
+        <xacro:roller_contact prefix="${prefix}" i="8"/>
+        <xacro:roller_contact prefix="${prefix}" i="9"/>
 
     </xacro:macro>
 

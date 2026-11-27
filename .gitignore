@@ -6,3 +6,11 @@ __pycache__/
 .pytest_cache/
 venv/
 .venv/
+
+# Salidas del AG y de los scripts de MuJoCo
+ag_results.json
+ag_results.png
+ag_results.html
+ag_log.txt
+resultados*/
+resultados*.csv

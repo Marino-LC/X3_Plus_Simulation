@@ -42,12 +42,14 @@
             <box><size>2.42 2.42 0.02</size></box>
           </geometry>
           <pose>0 0 -0.01 0 0 0</pose>
+          <!-- Fricción isotrópica = mu de MuJoCo (params.py). La anisotropía de la
+               rueda mecanum sale de los rodillos libres, no del piso: con rodillos
+               individuales ya no se usa mu2/fdir1 (eso era para la rueda sólida). -->
           <surface>
             <friction>
               <ode>
                 <mu>0.68</mu>
-                <mu2>0.4</mu2>
-                <fdir1>1 0 0</fdir1>
+                <mu2>0.68</mu2>
               </ode>
             </friction>
             <contact>

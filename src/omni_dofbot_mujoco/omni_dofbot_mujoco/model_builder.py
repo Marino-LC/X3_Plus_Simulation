@@ -36,7 +36,7 @@ def _f(*v):
     return " ".join(f"{x:.6g}" for x in v)
 
 
-# --- Mallas de rueda de omni_mujoco2 (STL en mm -> escala 0.001) -------------
+# --- Mallas de rueda de omni_mujoco2_cad.xml (STL en mm -> escala 0.001) -------------
 OMNI_STL = {"DERECHA": "DERECHA.stl", "IZQUIERDA": "IZQUIERDA.stl",
             "RODILLO": "RODILLO.stl"}
 
@@ -63,7 +63,7 @@ def _mesh_pose(axis, p):
     """pos/quat de RODILLO.stl dentro del cuerpo del rodillo.
 
     En el STL el eje largo es +x y la malla se extiende de x=0 a x=-L (el origen
-    está en una punta; se dedujo de omni_mujoco2.xml). Se gira x -> `axis` con la
+    está en una punta; se dedujo de omni_mujoco2_cad.xml). Se gira x -> `axis` con la
     rotación mínima y se desplaza L/2 para que quede centrada en el cuerpo (el
     cuerpo está en el centro del rodillo). El barril es de revolución: el giro
     propio alrededor de su eje no importa."""

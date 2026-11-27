@@ -14,9 +14,8 @@ find_package(nav_msgs REQUIRED)
 find_package(control_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 
-# Directorios a instalar (¡Aquí agregamos 'maps'!)
 install(
-  DIRECTORY launch rviz world config maps
+  DIRECTORY launch rviz world
   DESTINATION share/${PROJECT_NAME}/
 )
 
