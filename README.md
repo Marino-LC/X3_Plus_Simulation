@@ -14,9 +14,11 @@
 
 * Emmanuel Ricardo Oviedo Mendoza
 
-* Diego Alejandro Segura Soriano
+* Lobato Rodriguez Aldo Alejandro
 
 * Lair Abraham Santos Cruz
+
+* Briana Katheryn Garcia Mateos
 
 ## Estructura de los Branches
 
